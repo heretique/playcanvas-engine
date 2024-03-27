@@ -30,7 +30,6 @@ if (platform.browser && window.XRHand) {
 /**
  * Represents a hand with fingers and joints.
  *
- * @augments EventHandler
  * @category XR
  */
 class XrHand extends EventHandler {
@@ -109,7 +108,7 @@ class XrHand extends EventHandler {
      *
      * @param {import('./xr-input-source.js').XrInputSource} inputSource - Input Source that hand
      * is related to.
-     * @hideconstructor
+     * @ignore
      */
     constructor(inputSource) {
         super();
@@ -257,9 +256,9 @@ class XrHand extends EventHandler {
     }
 
     /**
-     * Returns joint by XRHand id from list in specs: https://immersive-web.github.io/webxr-hand-input/.
+     * Returns joint by its XRHand id.
      *
-     * @param {string} id - Id of a joint based on specs ID's in XRHand: https://immersive-web.github.io/webxr-hand-input/.
+     * @param {string} id - Id of a joint based on specs ID's in XRHand: https://immersive-web.github.io/webxr-hand-input/#skeleton-joints-section.
      * @returns {XrJoint|null} Joint or null if not available.
      */
     getJointById(id) {

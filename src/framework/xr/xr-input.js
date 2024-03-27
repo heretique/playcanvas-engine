@@ -5,7 +5,12 @@ import { XrInputSource } from './xr-input-source.js';
 /**
  * Provides access to input sources for WebXR.
  *
- * @augments EventHandler
+ * Input sources represent:
+ *
+ * - hand held controllers - and their optional capabilities: gamepad and vibration
+ * - hands - with their individual joints
+ * - transient sources - such as touch screen taps and voice commands
+ *
  * @category XR
  */
 class XrInput extends EventHandler {
@@ -22,7 +27,7 @@ class XrInput extends EventHandler {
     static EVENT_ADD = 'add';
 
     /**
-     * Fired when an {@link XrInputSource} is removed to the list. The handler is passed the
+     * Fired when an {@link XrInputSource} is removed from the list. The handler is passed the
      * {@link XrInputSource} that has been removed.
      *
      * @event
@@ -145,7 +150,7 @@ class XrInput extends EventHandler {
      * Create a new XrInput instance.
      *
      * @param {import('./xr-manager.js').XrManager} manager - WebXR Manager.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager) {
         super();

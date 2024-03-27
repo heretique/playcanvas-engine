@@ -18,7 +18,20 @@ const poolQuat = [];
  * Represents XR hit test source, which provides access to hit results of real world geometry from
  * AR session.
  *
- * @augments EventHandler
+ * ```javascript
+ * // start a hit test from a viewer origin forward
+ * app.xr.hitTest.start({
+ *     spaceType: pc.XRSPACE_VIEWER,
+ *     callback: function (err, hitTestSource) {
+ *         if (err) return;
+ *         // subscribe to hit test results
+ *         hitTestSource.on('result', function (position, rotation, inputSource, hitTestResult) {
+ *             // position and rotation of hit test result
+ *         });
+ *     }
+ * });
+ * ```
+ *
  * @category XR
  */
 class XrHitTestSource extends EventHandler {
@@ -35,13 +48,13 @@ class XrHitTestSource extends EventHandler {
 
     /**
      * Fired when the hit test source receives new results. It provides transform information that
-     * tries to match real world picked geometry. The handler is passed the {@link Vec3} position,
-     * the {@link Quat} rotation, the {@link XrInputSource} (if it is a transient hit test source)
+     * tries to match real world geometry. Callback provides the {@link Vec3} position, the
+     * {@link Quat} rotation, the {@link XrInputSource} (if it is a transient hit test source)
      * and the {@link XRHitTestResult} object that is created by WebXR API.
      *
      * @event
      * @example
-     * hitTestSource.on('result', (position, rotation) => {
+     * hitTestSource.on('result', (position, rotation, inputSource, hitTestReult) => {
      *     target.setPosition(position);
      *     target.setRotation(rotation);
      * });
@@ -79,7 +92,7 @@ class XrHitTestSource extends EventHandler {
      * @param {*} xrHitTestSource - XRHitTestSource object that is created by WebXR API.
      * @param {boolean} transient - True if XRHitTestSource created for input source profile.
      * @param {null|import('./xr-input-source.js').XrInputSource} inputSource - Input Source for which hit test is created for, or null.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager, xrHitTestSource, transient, inputSource = null) {
         super();

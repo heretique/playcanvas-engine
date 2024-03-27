@@ -10,7 +10,6 @@ import { RenderAction } from './render-action.js';
  * Layer Composition is a collection of {@link Layer} that is fed to {@link Scene#layers} to define
  * rendering order.
  *
- * @augments EventHandler
  * @category Graphics
  */
 class LayerComposition extends EventHandler {
@@ -187,6 +186,7 @@ class LayerComposition extends EventHandler {
                 // the place where to add them during building of the frame graph
                 if (camera.camera.renderPasses.length > 0) {
                     this.addDummyRenderAction(renderActionCount, camera);
+                    renderActionCount++;
                     continue;
                 }
 

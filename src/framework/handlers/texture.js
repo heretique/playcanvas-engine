@@ -17,7 +17,7 @@ import { Ktx2Parser } from '../parsers/texture/ktx2.js';
 import { DdsParser } from '../parsers/texture/dds.js';
 import { HdrParser } from '../parsers/texture/hdr.js';
 
-/** @typedef {import('./handler.js').ResourceHandler} ResourceHandler */
+import { ResourceHandler } from './handler.js';
 
 const JSON_ADDRESS_MODE = {
     'repeat': ADDRESS_REPEAT,
@@ -41,50 +41,6 @@ const JSON_TEXTURE_TYPE = {
     'rgbp': TEXTURETYPE_RGBP,
     'swizzleGGGR': TEXTURETYPE_SWIZZLEGGGR
 };
-
-/**
- * @interface
- * @name TextureParser
- * @description Interface to a texture parser. Implementations of this interface handle the loading
- * and opening of texture assets.
- *
- * @category Graphics
- */
-class TextureParser {
-    /* eslint-disable jsdoc/require-returns-check */
-    /**
-     * @function
-     * @name TextureParser#load
-     * @description Load the texture from the remote URL. When loaded (or failed),
-     * use the callback to return an the raw resource data (or error).
-     * @param {object} url - The URL of the resource to load.
-     * @param {string} url.load - The URL to use for loading the resource.
-     * @param {string} url.original - The original URL useful for identifying the resource type.
-     * @param {import('./handler.js').ResourceHandlerCallback} callback - The callback used when
-     * the resource is loaded or an error occurs.
-     * @param {import('../asset/asset.js').Asset} [asset] - Optional asset that is passed by
-     * ResourceLoader.
-     */
-    load(url, callback, asset) {
-        throw new Error('not implemented');
-    }
-
-    /**
-     * @function
-     * @name TextureParser#open
-     * @description Convert raw resource data into a resource instance. E.g. Take 3D model format
-     * JSON and return a {@link Model}.
-     * @param {string} url - The URL of the resource to open.
-     * @param {*} data - The raw resource data passed by callback from {@link ResourceHandler#load}.
-     * @param {import('../../platform/graphics/graphics-device.js').GraphicsDevice} device - The
-     * graphics device.
-     * @returns {Texture} The parsed resource data.
-     */
-    open(url, data, device) {
-        throw new Error('not implemented');
-    }
-    /* eslint-enable jsdoc/require-returns-check */
-}
 
 // In the case where a texture has more than 1 level of mip data specified, but not the full
 // mip chain, we generate the missing levels here.
@@ -159,24 +115,18 @@ const _completePartialMipmapChain = function (texture) {
 /**
  * Resource handler used for loading 2D and 3D {@link Texture} resources.
  *
- * @implements {ResourceHandler}
  * @category Graphics
  */
-class TextureHandler {
-    /**
-     * Type of the resource the handler handles.
-     *
-     * @type {string}
-     */
-    handlerType = "texture";
-
+class TextureHandler extends ResourceHandler {
     /**
      * Create a new TextureHandler instance.
      *
      * @param {import('../app-base.js').AppBase} app - The running {@link AppBase}.
-     * @hideconstructor
+     * @ignore
      */
     constructor(app) {
+        super(app, 'texture');
+
         const assets = app.assets;
         const device = app.graphicsDevice;
 
@@ -335,4 +285,4 @@ class TextureHandler {
     }
 }
 
-export { TextureHandler, TextureParser };
+export { TextureHandler };

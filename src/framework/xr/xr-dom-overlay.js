@@ -43,14 +43,10 @@ class XrDomOverlay {
     _root = null;
 
     /**
-     * DOM Overlay provides the ability to use DOM elements as an overlay in a WebXR AR session. It
-     * requires that the root DOM element is provided for session start. That way, input source
-     * select events are first tested against DOM Elements and then propagated down to the XR
-     * Session. If this propagation is not desirable, use the `beforexrselect` event on a DOM
-     * element and the `preventDefault` function to stop propagation.
+     * Create a new XrDomOverlay instance.
      *
      * @param {import('./xr-manager.js').XrManager} manager - WebXR Manager.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager) {
         this._manager = manager;
@@ -66,8 +62,8 @@ class XrDomOverlay {
     }
 
     /**
-     * True if DOM Overlay is available. It can only be available if it is supported, during a
-     * valid WebXR session and if a valid root element is provided.
+     * True if DOM Overlay is available. This information becomes available only when the session has
+     * started and a valid root DOM element has been provided.
      *
      * @type {boolean}
      */
@@ -79,12 +75,12 @@ class XrDomOverlay {
      * State of the DOM Overlay, which defines how the root DOM element is rendered. Possible
      * options:
      *
-     * - screen: Screen - indicates that the DOM element is covering whole physical screen,
+     * - screen - indicates that the DOM element is covering whole physical screen,
      * matching XR viewports.
-     * - floating: Floating - indicates that the underlying platform renders the DOM element as
+     * - floating - indicates that the underlying platform renders the DOM element as
      * floating in space, which can move during the WebXR session or allow the application to move
      * the element.
-     * - head-locked: Head Locked - indicates that the DOM element follows the user's head movement
+     * - head-locked - indicates that the DOM element follows the user's head movement
      * consistently, appearing similar to a helmet heads-up display.
      *
      * @type {string|null}
@@ -97,8 +93,8 @@ class XrDomOverlay {
     }
 
     /**
-     * The DOM element to be used as the root for DOM Overlay. Can be changed only outside of an
-     * active WebXR session.
+     * The DOM element to be used as the root for DOM Overlay. Can be changed only when XR session
+     * is not running.
      *
      * @type {Element|null}
      * @example

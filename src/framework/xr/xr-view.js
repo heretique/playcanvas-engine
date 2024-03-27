@@ -7,9 +7,9 @@ import { Mat4 } from "../../core/math/mat4.js";
 import { ADDRESS_CLAMP_TO_EDGE, FILTER_LINEAR, PIXELFORMAT_RGB8 } from '../../platform/graphics/constants.js';
 
 /**
- * Represents XR View which represents a screen (mobile phone context) or an eye (HMD context).
- * It provides access to view's color and depth information based on capabilities of underlying
- * AR system.
+ * Represents an XR View which represents a screen (monoscopic scenario such as a mobile phone) or an eye
+ * (stereoscopic scenario such as an HMD context). It provides access to the view's color and depth information
+ * based on the capabilities of underlying AR system.
  *
  * @category XR
  */
@@ -136,7 +136,7 @@ class XrView extends EventHandler {
      * @param {XRView} xrView - [XRView](https://developer.mozilla.org/en-US/docs/Web/API/XRView)
      * object that is created by WebXR API.
      * @param {number} viewsCount - Number of views available for the session.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager, xrView, viewsCount) {
         super();
@@ -190,7 +190,7 @@ class XrView extends EventHandler {
 
     /**
      * Texture associated with this view's camera color. Equals to null if camera color is
-     * not available or not supported.
+     * not available or is not supported.
      *
      * @type {Texture|null}
      */
@@ -544,9 +544,7 @@ class XrView extends EventHandler {
         return this._depthInfo?.getDepthInMeters(u, v) ?? null;
     }
 
-    /**
-     * @ignore
-     */
+    /** @ignore */
     destroy() {
         this._depthInfo = null;
 

@@ -8,6 +8,7 @@ import { Quat } from "../../core/math/quat.js";
  * change during its lifetime.
  *
  * @category XR
+ * @ignore
  */
 class XrMesh extends EventHandler {
     /**
@@ -69,7 +70,7 @@ class XrMesh extends EventHandler {
      * @param {import('./xr-mesh-detection.js').XrMeshDetection} meshDetection - Mesh Detection
      * interface.
      * @param {XRMesh} xrMesh - XRMesh that is instantiated by WebXR system.
-     * @hideconstructor
+     * @ignore
      */
     constructor(meshDetection, xrMesh) {
         super();
@@ -98,7 +99,7 @@ class XrMesh extends EventHandler {
     }
 
     /**
-     * Float 32 array of mesh vertices.
+     * Float 32 array of mesh vertices. This array contains 3 components per vertex: x,y,z coordinates.
      *
      * @type {Float32Array}
      */

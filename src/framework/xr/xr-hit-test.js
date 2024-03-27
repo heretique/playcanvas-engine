@@ -1,7 +1,7 @@
 import { platform } from '../../core/platform.js';
 import { EventHandler } from '../../core/event-handler.js';
 
-import { XRSPACE_VIEWER, XRTYPE_AR } from './constants.js';
+import { XRSPACE_VIEWER } from './constants.js';
 import { XrHitTestSource } from './xr-hit-test-source.js';
 
 /**
@@ -14,13 +14,35 @@ import { XrHitTestSource } from './xr-hit-test-source.js';
  */
 
 /**
- * Hit Test provides ability to get position and rotation of ray intersecting point with
- * representation of real world geometry by underlying AR system.
+ * The Hit Test interface allows initiating hit testing against real-world geometry from various
+ * sources: the view, input sources, or an arbitrary ray in space. Results reflect the underlying
+ * AR system's understanding of the real world.
  *
- * @augments EventHandler
  * @category XR
  */
 class XrHitTest extends EventHandler {
+    /**
+     * Fired when hit test becomes available.
+     *
+     * @event
+     * @example
+     * app.xr.hitTest.on('available', () => {
+     *     console.log('Hit Testing is available');
+     * });
+     */
+    static EVENT_AVAILABLE = 'available';
+
+    /**
+     * Fired when hit test becomes unavailable.
+     *
+     * @event
+     * @example
+     * app.xr.hitTest.on('unavailable', () => {
+     *     console.log('Hit Testing is unavailable');
+     * });
+     */
+    static EVENT_UNAVAILABLE = 'unavailable';
+
     /**
      * Fired when new {@link XrHitTestSource} is added to the list. The handler is passed the
      * {@link XrHitTestSource} object that has been added.
@@ -84,10 +106,16 @@ class XrHitTest extends EventHandler {
     _supported = platform.browser && !!(window.XRSession && window.XRSession.prototype.requestHitTestSource);
 
     /**
-     * @type {XRSession}
+     * @type {boolean}
      * @private
      */
-    _session = null;
+    _available = false;
+
+    /**
+     * @type {boolean}
+     * @private
+     */
+    _checkingAvailability = false;
 
     /**
      * List of active {@link XrHitTestSource}.
@@ -100,7 +128,7 @@ class XrHitTest extends EventHandler {
      * Create a new XrHitTest instance.
      *
      * @param {import('./xr-manager.js').XrManager} manager - WebXR Manager.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager) {
         super();
@@ -115,52 +143,42 @@ class XrHitTest extends EventHandler {
 
     /** @private */
     _onSessionStart() {
-        if (this.manager.type !== XRTYPE_AR)
-            return;
+        if (this.manager.session.enabledFeatures) {
+            const available = this.manager.session.enabledFeatures.indexOf('hit-test') !== -1;
+            if (!available) return;
+            this._available = available;
+            this.fire('available');
+        } else if (!this._checkingAvailability) {
+            this._checkingAvailability = true;
 
-        this._session = this.manager.session;
+            // enabledFeatures - is not available, requires alternative way to check feature availability
+
+            this.manager.session.requestReferenceSpace(XRSPACE_VIEWER).then((referenceSpace) => {
+                this.manager.session.requestHitTestSource({
+                    space: referenceSpace
+                }).then((hitTestSource) => {
+                    hitTestSource.cancel();
+
+                    if (this.manager.active) {
+                        this._available = true;
+                        this.fire('available');
+                    }
+                }).catch(() => { });
+            }).catch(() => {});
+        }
     }
 
     /** @private */
     _onSessionEnd() {
-        if (!this._session)
-            return;
-
-        this._session = null;
+        if (!this._available) return;
+        this._available = false;
 
         for (let i = 0; i < this.sources.length; i++) {
             this.sources[i].onStop();
         }
         this.sources = [];
-    }
 
-    /**
-     * Checks if hit testing is available.
-     *
-     * @param {Function} callback - Error callback.
-     * @param {*} fireError - Event handler on while to fire error event.
-     * @returns {boolean} True if hit test is available.
-     * @private
-     */
-    isAvailable(callback, fireError) {
-        let err;
-
-        if (!this._supported)
-            err = new Error('XR HitTest is not supported');
-
-        if (!this._session)
-            err = new Error('XR Session is not started (1)');
-
-        if (this.manager.type !== XRTYPE_AR)
-            err = new Error('XR HitTest is available only for AR');
-
-        if (err) {
-            if (callback) callback(err);
-            if (fireError) fireError.fire('error', err);
-            return false;
-        }
-
-        return true;
+        this.fire('unavailable');
     }
 
     /**
@@ -200,17 +218,18 @@ class XrHitTest extends EventHandler {
      * @param {XrHitTestStartCallback} [options.callback] - Optional callback function called once
      * hit test source is created or failed.
      * @example
+     * // start hit testing from viewer position facing forwards
      * app.xr.hitTest.start({
      *     spaceType: pc.XRSPACE_VIEWER,
      *     callback: function (err, hitTestSource) {
      *         if (err) return;
      *         hitTestSource.on('result', function (position, rotation) {
      *             // position and rotation of hit test result
-     *             // based on Ray facing forward from the Viewer reference space
      *         });
      *     }
      * });
      * @example
+     * // start hit testing using an arbitrary ray
      * const ray = new pc.Ray(new pc.Vec3(0, 0, 0), new pc.Vec3(0, -1, 0));
      * app.xr.hitTest.start({
      *     spaceType: pc.XRSPACE_LOCAL,
@@ -221,6 +240,7 @@ class XrHitTest extends EventHandler {
      *     }
      * });
      * @example
+     * // start hit testing for touch screen taps
      * app.xr.hitTest.start({
      *     profile: 'generic-touchscreen',
      *     callback: function (err, hitTestSource) {
@@ -233,8 +253,15 @@ class XrHitTest extends EventHandler {
      * });
      */
     start(options = {}) {
-        if (!this.isAvailable(options.callback, this))
+        if (!this._supported) {
+            options.callback?.(new Error('XR HitTest is not supported'), null);
             return;
+        }
+
+        if (!this._available) {
+            options.callback?.(new Error('XR HitTest is not available'), null);
+            return;
+        }
 
         if (!options.profile && !options.spaceType)
             options.spaceType = XRSPACE_VIEWER;
@@ -250,15 +277,15 @@ class XrHitTest extends EventHandler {
         const callback = options.callback;
 
         if (options.spaceType) {
-            this._session.requestReferenceSpace(options.spaceType).then((referenceSpace) => {
-                if (!this._session) {
+            this.manager.session.requestReferenceSpace(options.spaceType).then((referenceSpace) => {
+                if (!this.manager.session) {
                     const err = new Error('XR Session is not started (2)');
                     if (callback) callback(err);
                     this.fire('error', err);
                     return;
                 }
 
-                this._session.requestHitTestSource({
+                this.manager.session.requestHitTestSource({
                     space: referenceSpace,
                     entityTypes: options.entityTypes || undefined,
                     offsetRay: xrRay
@@ -273,7 +300,7 @@ class XrHitTest extends EventHandler {
                 this.fire('error', ex);
             });
         } else {
-            this._session.requestHitTestSourceForTransientInput({
+            this.manager.session.requestHitTestSourceForTransientInput({
                 profile: options.profile,
                 entityTypes: options.entityTypes || undefined,
                 offsetRay: xrRay
@@ -294,7 +321,7 @@ class XrHitTest extends EventHandler {
      * @private
      */
     _onHitTestSource(xrHitTestSource, transient, inputSource, callback) {
-        if (!this._session) {
+        if (!this.manager.session) {
             xrHitTestSource.cancel();
             const err = new Error('XR Session is not started (3)');
             if (callback) callback(err);
@@ -314,6 +341,9 @@ class XrHitTest extends EventHandler {
      * @ignore
      */
     update(frame) {
+        if (!this._available)
+            return;
+
         for (let i = 0; i < this.sources.length; i++) {
             this.sources[i].update(frame);
         }
@@ -326,6 +356,15 @@ class XrHitTest extends EventHandler {
      */
     get supported() {
         return this._supported;
+    }
+
+    /**
+     * True if Hit Test is available. This information is available only when the session has started.
+     *
+     * @type {boolean}
+     */
+    get available() {
+        return this._available;
     }
 }
 

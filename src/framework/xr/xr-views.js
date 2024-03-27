@@ -6,7 +6,7 @@ import { PIXELFORMAT_LA8, PIXELFORMAT_R32F } from '../../platform/graphics/const
 
 /**
  * Provides access to list of {@link XrView}'s. And information about their capabilities,
- * such as support and availability of view's camera color texture.
+ * such as support and availability of view's camera color texture, depth texture and other parameters.
  *
  * @category XR
  */
@@ -107,7 +107,7 @@ class XrViews extends EventHandler {
 
     /**
      * @param {import('./xr-manager.js').XrManager} manager - WebXR Manager.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager) {
         super();
@@ -169,10 +169,17 @@ class XrViews extends EventHandler {
     }
 
     /**
+     * @type {string}
+     * @ignore
+     */
+    get depthUsage() {
+        return this._depthUsage;
+    }
+
+    /**
      * Whether the depth sensing is GPU optimized.
      *
      * @type {boolean}
-     * @ignore
      */
     get depthGpuOptimized() {
         return this._depthUsage === XRDEPTHSENSINGUSAGE_GPU;
@@ -194,14 +201,6 @@ class XrViews extends EventHandler {
      */
     get depthPixelFormat() {
         return this._depthFormats[this._depthFormat] ?? null;
-    }
-
-    /**
-     * @type {string}
-     * @ignore
-     */
-    get depthUsage() {
-        return this._depthUsage;
     }
 
     /**
@@ -246,6 +245,8 @@ class XrViews extends EventHandler {
     }
 
     /**
+     * Get an {@link XrView} by its associated eye constant.
+     *
      * @param {string} eye - An XREYE_* view is associated with. Can be 'none' for monoscope views.
      * @returns {XrView|null} View or null if view of such eye is not available.
      */
@@ -258,6 +259,9 @@ class XrViews extends EventHandler {
      */
     _onSessionStart() {
         if (this._manager.type !== XRTYPE_AR)
+            return;
+
+        if (!this._manager.session.enabledFeatures)
             return;
 
         this._availableColor = this._manager.session.enabledFeatures.indexOf('camera-access') !== -1;

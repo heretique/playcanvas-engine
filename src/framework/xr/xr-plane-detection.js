@@ -102,7 +102,7 @@ class XrPlaneDetection extends EventHandler {
      * Create a new XrPlaneDetection instance.
      *
      * @param {import('./xr-manager.js').XrManager} manager - WebXR Manager.
-     * @hideconstructor
+     * @ignore
      */
     constructor(manager) {
         super();
@@ -117,10 +117,12 @@ class XrPlaneDetection extends EventHandler {
 
     /** @private */
     _onSessionStart() {
-        const available = this._supported && this._manager.session.enabledFeatures.indexOf('plane-detection') !== -1;
-        if (available) {
-            this._available = true;
-            this.fire('available');
+        if (this._manager.session.enabledFeatures) {
+            const available = this._manager.session.enabledFeatures.indexOf('plane-detection') !== -1;
+            if (available) {
+                this._available = true;
+                this.fire('available');
+            }
         }
     }
 
@@ -145,8 +147,14 @@ class XrPlaneDetection extends EventHandler {
      * @ignore
      */
     update(frame) {
-        if (!this._supported || !this._available)
-            return;
+        if (!this._available) {
+            if (!this._manager.session.enabledFeatures && frame.detectedPlanes.size) {
+                this._available = true;
+                this.fire('available');
+            } else {
+                return;
+            }
+        }
 
         const detectedPlanes = frame.detectedPlanes;
 
@@ -192,8 +200,7 @@ class XrPlaneDetection extends EventHandler {
     }
 
     /**
-     * True if Plane Detection is available. This property can be set to true only during a running
-     * session.
+     * True if Plane Detection is available. This information is available only when the session has started.
      *
      * @type {boolean}
      */
@@ -202,8 +209,7 @@ class XrPlaneDetection extends EventHandler {
     }
 
     /**
-     * Array of {@link XrPlane} instances that contain individual plane information, or null if
-     * plane detection is not available.
+     * Array of {@link XrPlane} instances that contain individual plane information.
      *
      * @type {XrPlane[]}
      */
