@@ -1,6 +1,8 @@
 import { Debug, DebugHelper } from '../../core/debug.js';
 import { now } from '../../core/time.js';
+import { Vec2 } from '../../core/math/vec2.js';
 import { Vec3 } from '../../core/math/vec3.js';
+import { Vec4 } from '../../core/math/vec4.js';
 import { Mat3 } from '../../core/math/mat3.js';
 import { Mat4 } from '../../core/math/mat4.js';
 import { BoundingSphere } from '../../core/shape/bounding-sphere.js';
@@ -35,7 +37,9 @@ import { ShadowRendererLocal } from './shadow-renderer-local.js';
 import { ShadowRendererDirectional } from './shadow-renderer-directional.js';
 import { ShadowRenderer } from './shadow-renderer.js';
 import { WorldClustersAllocator } from './world-clusters-allocator.js';
-import { RenderPassCookieRenderer } from './render-pass-cookie-renderer.js';
+import { RenderPassUpdateClustered } from './render-pass-update-clustered.js';
+import { getBlueNoiseTexture } from '../graphics/blue-noise-texture.js';
+import { BlueNoise } from '../../core/math/blue-noise.js';
 
 let _skinUpdateIndex = 0;
 const boneTextureSize = [0, 0, 0, 0];
@@ -47,6 +51,7 @@ const tempSphere = new BoundingSphere();
 const _flipYMat = new Mat4().setScale(1, -1, 1);
 const _tempLightSet = new Set();
 const _tempLayerSet = new Set();
+const _tempVec4 = new Vec4();
 
 // Converts a projection matrix in OpenGL style (depth range of -1..1) to a DirectX style (depth range of 0..1).
 const _fixProjRangeMat = new Mat4().set([
@@ -56,10 +61,32 @@ const _fixProjRangeMat = new Mat4().set([
     0, 0, 0.5, 1
 ]);
 
+// helton sequence of 2d offsets for jittering
+const _haltonSequence = [
+    new Vec2(0.5, 0.333333),
+    new Vec2(0.25, 0.666667),
+    new Vec2(0.75, 0.111111),
+    new Vec2(0.125, 0.444444),
+    new Vec2(0.625, 0.777778),
+    new Vec2(0.375, 0.222222),
+    new Vec2(0.875, 0.555556),
+    new Vec2(0.0625, 0.888889),
+    new Vec2(0.5625, 0.037037),
+    new Vec2(0.3125, 0.370370),
+    new Vec2(0.8125, 0.703704),
+    new Vec2(0.1875, 0.148148),
+    new Vec2(0.6875, 0.481481),
+    new Vec2(0.4375, 0.814815),
+    new Vec2(0.9375, 0.259259),
+    new Vec2(0.03125, 0.592593)
+];
+
 const _tempProjMat0 = new Mat4();
 const _tempProjMat1 = new Mat4();
 const _tempProjMat2 = new Mat4();
 const _tempProjMat3 = new Mat4();
+const _tempProjMat4 = new Mat4();
+const _tempProjMat5 = new Mat4();
 const _tempSet = new Set();
 
 const _tempMeshInstances = [];
@@ -104,6 +131,25 @@ class Renderer {
     localLights = [];
 
     /**
+     * A list of unique directional shadow casting lights for each enabled camera. This is generated
+     * each frame during light culling.
+     *
+     * @type {Map<import('../camera.js').Camera, Array<import('../light.js').Light>>}
+     */
+    cameraDirShadowLights = new Map();
+
+    /**
+     * A mapping of a directional light to a camera, for which the shadow is currently valid. This
+     * is cleared each frame, and updated each time a directional light shadow is rendered for a
+     * camera, and allows us to manually schedule shadow passes when a new camera needs a shadow.
+     *
+     * @type {Map<import('../light.js').Light, import('../camera.js').Camera>}
+     */
+    dirLightShadows = new Map();
+
+    blueNoise = new BlueNoise(123);
+
+    /**
      * Create a new instance.
      *
      * @param {import('../../platform/graphics/graphics-device.js').GraphicsDevice} graphicsDevice - The
@@ -127,8 +173,9 @@ class Renderer {
         this._shadowRendererLocal = new ShadowRendererLocal(this, this.shadowRenderer);
         this._shadowRendererDirectional = new ShadowRendererDirectional(this, this.shadowRenderer);
 
-        // cookies
-        this.cookiesRenderPass = RenderPassCookieRenderer.create(this.lightTextureAtlas.cookieRenderTarget, this.lightTextureAtlas.cubeSlotsOffsets);
+        // clustered passes
+        this._renderPassUpdateClustered = new RenderPassUpdateClustered(this.device, this, this.shadowRenderer,
+                                                                        this._shadowRendererLocal, this.lightTextureAtlas);
 
         // view bind group format with its uniform buffer format
         this.viewUniformFormat = null;
@@ -173,6 +220,10 @@ class Renderer {
         this.farClipId = scope.resolve('camera_far');
         this.cameraParams = new Float32Array(4);
         this.cameraParamsId = scope.resolve('camera_params');
+        this.viewIndexId = scope.resolve('view_index');
+
+        this.blueNoiseJitterId = scope.resolve('blueNoiseJitter');
+        this.blueNoiseTextureId = scope.resolve('blueNoiseTex32');
 
         this.alphaTestId = scope.resolve('alpha_ref');
         this.opacityMapId = scope.resolve('texture_opacityMap');
@@ -200,8 +251,8 @@ class Renderer {
         this.shadowMapCache.destroy();
         this.shadowMapCache = null;
 
-        this.cookiesRenderPass.destroy();
-        this.cookiesRenderPass = null;
+        this._renderPassUpdateClustered.destroy();
+        this._renderPassUpdateClustered = null;
 
         this.lightTextureAtlas.destroy();
         this.lightTextureAtlas = null;
@@ -294,31 +345,12 @@ class Renderer {
 
         let viewCount = 1;
         if (camera.xr && camera.xr.session) {
-            let transform;
-            const parent = camera._node.parent;
-            if (parent)
-                transform = parent.getWorldTransform();
-
+            const transform = camera._node?.parent?.getWorldTransform() || null;
             const views = camera.xr.views;
-            viewCount = views.length;
+            viewCount = views.list.length;
             for (let v = 0; v < viewCount; v++) {
-                const view = views[v];
-
-                if (parent) {
-                    view.viewInvOffMat.mul2(transform, view.viewInvMat);
-                    view.viewOffMat.copy(view.viewInvOffMat).invert();
-                } else {
-                    view.viewInvOffMat.copy(view.viewInvMat);
-                    view.viewOffMat.copy(view.viewMat);
-                }
-
-                view.viewMat3.setFromMat4(view.viewOffMat);
-                view.projViewOffMat.mul2(view.projMat, view.viewOffMat);
-
-                view.position[0] = view.viewInvOffMat.data[12];
-                view.position[1] = view.viewInvOffMat.data[13];
-                view.position[2] = view.viewInvOffMat.data[14];
-
+                const view = views.list[v];
+                view.updateTransforms(transform);
                 camera.frustum.setFromMat4(view.projViewOffMat);
             }
         } else {
@@ -341,6 +373,36 @@ class Renderer {
                 projMat = _tempProjMat2.mul2(_fixProjRangeMat, projMat);
                 projMatSkybox = _tempProjMat3.mul2(_fixProjRangeMat, projMatSkybox);
             }
+
+            // camera jitter
+            const { jitter } = camera;
+            let noise = Vec4.ZERO;
+            if (jitter > 0) {
+
+                // render target size
+                const targetWidth = target ? target.width : this.device.width;
+                const targetHeight = target ? target.height : this.device.height;
+
+                // offsets
+                const offset = _haltonSequence[this.device.renderVersion % _haltonSequence.length];
+                const offsetX = jitter * (offset.x * 2 - 1) / targetWidth;
+                const offsetY = jitter * (offset.y * 2 - 1) / targetHeight;
+
+                // apply offset to projection matrix
+                projMat = _tempProjMat4.copy(projMat);
+                projMat.data[8] = offsetX;
+                projMat.data[9] = offsetY;
+
+                // apply offset to skybox projection matrix
+                projMatSkybox = _tempProjMat5.copy(projMatSkybox);
+                projMatSkybox.data[8] = offsetX;
+                projMatSkybox.data[9] = offsetY;
+
+                // blue noise vec4 - only set when jitter is enabled
+                noise = this.blueNoise.vec4(_tempVec4);
+            }
+
+            this.blueNoiseJitterId.setValue([noise.x, noise.y, noise.z, noise.w]);
 
             this.projId.setValue(projMat.data);
             this.projSkyboxId.setValue(projMatSkybox.data);
@@ -496,9 +558,9 @@ class Renderer {
 
     updateCameraFrustum(camera) {
 
-        if (camera.xr && camera.xr.views.length) {
+        if (camera.xr && camera.xr.views.list.length) {
             // calculate frustum based on XR view
-            const view = camera.xr.views[0];
+            const view = camera.xr.views.list[0];
             viewProjMat.mul2(view.projMat, view.viewOffMat);
             camera.frustum.setFromMat4(viewProjMat);
             return;
@@ -612,6 +674,19 @@ class Renderer {
     }
 
     /**
+     * Update gsplats ahead of rendering.
+     *
+     * @param {import('../mesh-instance.js').MeshInstance[]|Set<import('../mesh-instance.js').MeshInstance>} drawCalls - MeshInstances
+     * containing gsplatInstances.
+     * @ignore
+     */
+    updateGSplats(drawCalls) {
+        for (const drawCall of drawCalls) {
+            drawCall.gsplatInstance?.update();
+        }
+    }
+
+    /**
      * Update draw calls ahead of rendering.
      *
      * @param {import('../mesh-instance.js').MeshInstance[]|Set<import('../mesh-instance.js').MeshInstance>} drawCalls - MeshInstances
@@ -623,6 +698,7 @@ class Renderer {
         // that are visible in this frame
         this.updateGpuSkinMatrices(drawCalls);
         this.updateMorphing(drawCalls);
+        this.updateGSplats(drawCalls);
     }
 
     setVertexBuffers(device, mesh) {
@@ -868,8 +944,14 @@ class Renderer {
                     const bucket = drawCall.transparent ? transparent : opaque;
                     bucket.push(drawCall);
 
-                    if (drawCall.skinInstance || drawCall.morphInstance)
+                    if (drawCall.skinInstance || drawCall.morphInstance || drawCall.gsplatInstance) {
                         this.processingMeshInstances.add(drawCall);
+
+                        // register visible cameras
+                        if (drawCall.gsplatInstance) {
+                            drawCall.gsplatInstance.cameras.push(camera);
+                        }
+                    }
                 }
             }
         }
@@ -1016,17 +1098,16 @@ class Renderer {
             }
         }
 
-        // shadow casters culling for directional lights
-        const renderActions = comp._renderActions;
-        for (let i = 0; i < renderActions.length; i++) {
-            const renderAction = renderActions[i];
-            renderAction.directionalLights.length = 0;
-            const camera = renderAction.camera.camera;
-
-            // first use of each camera renders directional shadows
-            if (renderAction.firstCameraUse)  {
+        // shadow casters culling for directional lights - start with none and collect lights for cameras
+        this.cameraDirShadowLights.clear();
+        const cameras = comp.cameras;
+        for (let i = 0; i < cameras.length; i++) {
+            const cameraComponent = cameras[i];
+            if (cameraComponent.enabled) {
+                const camera = cameraComponent.camera;
 
                 // get directional lights from all layers of the camera
+                let lightList;
                 const cameraLayers = camera.layers;
                 for (let l = 0; l < cameraLayers.length; l++) {
                     const cameraLayer = comp.getLayerById(cameraLayers[l]);
@@ -1039,13 +1120,19 @@ class Renderer {
                             // unique shadow casting lights
                             if (light.castShadows && !_tempSet.has(light)) {
                                 _tempSet.add(light);
-                                renderAction.directionalLights.push(light);
+
+                                lightList = lightList ?? [];
+                                lightList.push(light);
 
                                 // frustum culling for the directional shadow when rendering the camera
                                 this._shadowRendererDirectional.cull(light, comp, camera);
                             }
                         }
                     }
+                }
+
+                if (lightList) {
+                    this.cameraDirShadowLights.set(camera, lightList);
                 }
 
                 _tempSet.clear();
@@ -1073,9 +1160,8 @@ class Renderer {
         for (let i = 0; i < numCameras; i++) {
             const camera = comp.cameras[i];
 
-            // update camera and frustum
-            camera.frameUpdate(camera.renderTarget);
-            this.updateCameraFrustum(camera.camera);
+            let currentRenderTarget;
+            let cameraChanged = true;
             this._camerasRendered++;
 
             // for all of its enabled layers
@@ -1083,6 +1169,17 @@ class Renderer {
             for (let j = 0; j < layerIds.length; j++) {
                 const layer = comp.getLayerById(layerIds[j]);
                 if (layer && layer.enabled) {
+
+                    // update camera and frustum when the render target changes
+                    // TODO: This is done here to handle the backwards compatibility with the deprecated Layer.renderTarget,
+                    // when this is no longer needed, this code can be moved up to execute once per camera.
+                    const renderTarget = camera.renderTarget ?? layer.renderTarget;
+                    if (cameraChanged || renderTarget !== currentRenderTarget) {
+                        cameraChanged = false;
+                        currentRenderTarget = renderTarget;
+                        camera.frameUpdate(renderTarget);
+                        this.updateCameraFrustum(camera.camera);
+                    }
 
                     // cull each layer's non-directional lights once with each camera
                     // lights aren't collected anywhere, but marked as visible
@@ -1146,6 +1243,11 @@ class Renderer {
         _tempSet.clear();
     }
 
+    updateFrameUniforms() {
+        // blue noise texture
+        this.blueNoiseTextureId.setValue(getBlueNoiseTexture(this.device));
+    }
+
     /**
      * @param {import('../composition/layer-composition.js').LayerComposition} comp - The layer
      * composition to update.
@@ -1196,6 +1298,8 @@ class Renderer {
             scene._shaderVersion++;
         }
 
+        this.updateFrameUniforms();
+
         // Update all skin matrices to properly cull skinned objects (but don't update rendering data yet)
         this.updateCpuSkinMatrices(_tempMeshInstancesSkinned);
 
@@ -1211,31 +1315,8 @@ class Renderer {
         }
     }
 
-    /**
-     * @param {import('../composition/layer-composition.js').LayerComposition} comp - The layer
-     * composition.
-     */
     updateLightTextureAtlas() {
         this.lightTextureAtlas.update(this.localLights, this.scene.lighting);
-    }
-
-    /**
-     * @param {import('../composition/layer-composition.js').LayerComposition} comp - The layer
-     * composition.
-     */
-    updateClusters(comp) {
-
-        // #if _PROFILER
-        const startTime = now();
-        // #endif
-
-        const renderActions = comp._renderActions;
-        this.worldClustersAllocator.update(renderActions, this.scene.gammaCorrection, this.scene.lighting);
-
-        // #if _PROFILER
-        this._lightClustersTime += now() - startTime;
-        this._lightClusters = this.worldClustersAllocator.count;
-        // #endif
     }
 
     /**
@@ -1243,10 +1324,8 @@ class Renderer {
      *
      * @param {import('../composition/layer-composition.js').LayerComposition} comp - The layer
      * composition to update.
-     * @param {boolean} clusteredLightingEnabled - True if clustered lighting is enabled.
-     * @ignore
      */
-    updateLayerComposition(comp, clusteredLightingEnabled) {
+    updateLayerComposition(comp) {
 
         // #if _PROFILER
         const layerCompositionUpdateTime = now();
@@ -1293,6 +1372,9 @@ class Renderer {
         this.clustersDebugRendered = false;
 
         this.initViewBindGroupFormat(this.scene.clusteredLightingEnabled);
+
+        // no valid shadows at the start of the frame
+        this.dirLightShadows.clear();
     }
 }
 
