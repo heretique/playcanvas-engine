@@ -8,7 +8,6 @@ import { Color } from '../../core/math/color.js';
 import { TRACEID_TEXTURES } from '../../core/constants.js';
 
 import {
-    BUFFER_STATIC,
     CULLFACE_BACK,
     CLEARFLAG_COLOR, CLEARFLAG_DEPTH,
     PRIMITIVE_POINTS, PRIMITIVE_TRIFAN, SEMANTIC_POSITION, TYPE_FLOAT32, PIXELFORMAT_111110F, PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F
@@ -209,6 +208,20 @@ class GraphicsDevice extends EventHandler {
     supportsCompute = false;
 
     /**
+     * True if the device can read from StorageTexture in the compute shader. By default, the
+     * storage texture can be only used with the write operation.
+     * When a shader uses this feature, it's recommended to use a `requires` directive to signal the
+     * potential for non-portability at the top of the WGSL shader code:
+     * ```javascript
+     * requires readonly_and_readwrite_storage_textures;
+     * ```
+     *
+     * @readonly
+     * @type {boolean}
+     */
+    supportsStorageTextureRead = false;
+
+    /**
      * Currently active render target.
      *
      * @type {import('./render-target.js').RenderTarget|null}
@@ -402,7 +415,8 @@ class GraphicsDevice extends EventHandler {
             tex: 0,
             vb: 0,
             ib: 0,
-            ub: 0
+            ub: 0,
+            sb: 0
         };
 
         this._shaderStats = {
@@ -442,7 +456,9 @@ class GraphicsDevice extends EventHandler {
             { semantic: SEMANTIC_POSITION, components: 2, type: TYPE_FLOAT32 }
         ]);
         const positions = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
-        this.quadVertexBuffer = new VertexBuffer(this, vertexFormat, 4, BUFFER_STATIC, positions);
+        this.quadVertexBuffer = new VertexBuffer(this, vertexFormat, 4, {
+            data: positions
+        });
     }
 
     /**
@@ -659,6 +675,15 @@ class GraphicsDevice extends EventHandler {
         if (vertexBuffer) {
             this.vertexBuffers.push(vertexBuffer);
         }
+    }
+
+    /**
+     * Clears the vertex buffer set on the graphics device. This is called automatically by the
+     * renderer.
+     * @ignore
+     */
+    clearVertexBuffer() {
+        this.vertexBuffers.length = 0;
     }
 
     /**

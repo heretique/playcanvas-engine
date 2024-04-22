@@ -2,7 +2,6 @@
  * @type {import('../../../../types.mjs').ExampleConfig}
  */
 export default {
-    HIDDEN: true,
     WEBGPU_REQUIRED: true,
     FILES: {
         'compute-shader.wgsl': /* wgsl */`
@@ -14,10 +13,8 @@ export default {
             }
 
             @group(0) @binding(0) var<uniform> ubCompute : ub_compute;
-
             @group(0) @binding(1) var inputTexture: texture_2d<f32>;
-            // @group(0) @binding(2) is a sampler of the inputTexture, but we don't need it in the shader.
-            @group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+            @group(0) @binding(2) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 
             @compute @workgroup_size(1, 1, 1)
             fn main(@builtin(global_invocation_id) global_id : vec3u) {

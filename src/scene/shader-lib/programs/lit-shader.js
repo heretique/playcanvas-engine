@@ -748,6 +748,9 @@ class LitShader {
                     func.append(chunks.TBNObjectSpacePS);
                 }
             }
+            if (options.twoSidedLighting) {
+                func.append(chunks.twoSidedLightingPS);
+            }
         }
 
         // FIXME: only add these when needed
@@ -767,7 +770,7 @@ class LitShader {
         if (this.needsNormal) {
             func.append(chunks.cubeMapRotatePS);
             func.append(options.cubeMapProjection > 0 ? chunks.cubeMapProjectBoxPS : chunks.cubeMapProjectNonePS);
-            func.append(options.skyboxIntensity ? chunks.envMultiplyPS : chunks.envConstPS);
+            func.append(chunks.envMultiplyPS);
         }
 
         if ((this.lighting && options.useSpecular) || this.reflections) {
@@ -990,34 +993,24 @@ class LitShader {
             func.append(chunks.clusteredLightPS);
         }
 
-        if (options.twoSidedLighting) {
-            decl.append("uniform float twoSidedLightingNegScaleFactor;");
-        }
-
         // FRAGMENT SHADER BODY
 
         code.append(this._fsGetStartCode(code, device, chunks, options));
 
         if (this.needsNormal) {
-            if (options.twoSidedLighting) {
-                code.append("    dVertexNormalW = normalize(gl_FrontFacing ? vNormalW * twoSidedLightingNegScaleFactor : -vNormalW * twoSidedLightingNegScaleFactor);");
-            } else {
-                code.append("    dVertexNormalW = normalize(vNormalW);");
-            }
+            code.append("    dVertexNormalW = normalize(vNormalW);");
 
             if ((options.useHeights || options.useNormals) && options.hasTangents) {
-                if (options.twoSidedLighting) {
-                    code.append("    dTangentW = gl_FrontFacing ? vTangentW * twoSidedLightingNegScaleFactor : -vTangentW * twoSidedLightingNegScaleFactor;");
-                    code.append("    dBinormalW = gl_FrontFacing ? vBinormalW * twoSidedLightingNegScaleFactor : -vBinormalW * twoSidedLightingNegScaleFactor;");
-                } else {
-                    code.append("    dTangentW = vTangentW;");
-                    code.append("    dBinormalW = vBinormalW;");
-                }
+                code.append("    dTangentW = vTangentW;");
+                code.append("    dBinormalW = vBinormalW;");
             }
 
             code.append("    getViewDir();");
             if (hasTBN) {
                 code.append("    getTBN(dTangentW, dBinormalW, dVertexNormalW);");
+                if (options.twoSidedLighting) {
+                    code.append("    handleTwoSidedLighting();");
+                }
             }
         }
 

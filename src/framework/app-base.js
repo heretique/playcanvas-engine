@@ -1492,6 +1492,8 @@ class AppBase extends EventHandler {
      * - {@link TONEMAP_FILMIC}
      * - {@link TONEMAP_HEJL}
      * - {@link TONEMAP_ACES}
+     * - {@link TONEMAP_ACES2}
+     * - {@link TONEMAP_NEUTRAL}
      *
      * @param {number} settings.render.exposure - The exposure value tweaks the overall brightness
      * of the scene.
@@ -2268,7 +2270,13 @@ const makeTick = function (_app) {
         if (!application.graphicsDevice)
             return;
 
-        application.frameRequestId = null;
+        // cancel any hanging rAF to avoid multiple rAF callbacks per frame
+        if (application.frameRequestId) {
+            application.xr?.session?.cancelAnimationFrame(application.frameRequestId);
+            cancelAnimationFrame(application.frameRequestId);
+            application.frameRequestId = null;
+        }
+
         application._inFrameUpdate = true;
 
         setApplication(application);
