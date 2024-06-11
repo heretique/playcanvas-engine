@@ -180,8 +180,8 @@ class XrView extends EventHandler {
                 name: `XrView-${this._xrView.eye}-Depth`
             });
 
-            for (let i = 0; i < this._textureDepth._levels.length; i++) {
-                this._textureDepth._levels[i] = this._emptyDepthBuffer;
+            for (let i = 0; i < this._textureDepth._levels.size; i++) {
+                this._textureDepth._levels.set(i, this._emptyDepthBuffer);
             }
         }
 
@@ -483,12 +483,12 @@ class XrView extends EventHandler {
                 }
             } else {
                 // cpu
-                this._textureDepth._levels[0] = new Uint8Array(this._depthInfo.data);
+                this._textureDepth._levels.set(0, new Uint8Array(this._depthInfo.data));
                 this._textureDepth.upload();
             }
         } else {
             // clear
-            this._textureDepth._levels[0] = this._emptyDepthBuffer;
+            this._textureDepth._levels.set(0, this._emptyDepthBuffer);
             this._textureDepth.upload();
         }
 

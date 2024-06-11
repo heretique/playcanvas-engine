@@ -10,8 +10,13 @@ import {
     PIXELFORMAT_ATC_RGBA, PIXELFORMAT_BGRA8, PIXELFORMAT_R8I, PIXELFORMAT_R8U, PIXELFORMAT_R16I, PIXELFORMAT_R16U,
     PIXELFORMAT_R32I, PIXELFORMAT_R32U, PIXELFORMAT_RG16I, PIXELFORMAT_RG16U, PIXELFORMAT_RG32I, PIXELFORMAT_RG32U,
     PIXELFORMAT_RG8I, PIXELFORMAT_RG8U, PIXELFORMAT_RGBA16I, PIXELFORMAT_RGBA16U, PIXELFORMAT_RGBA32I, PIXELFORMAT_RGBA32U,
-    PIXELFORMAT_RGBA8I, PIXELFORMAT_RGBA8U, PIXELFORMAT_R16F, PIXELFORMAT_RG16F, PIXELFORMAT_R8, PIXELFORMAT_RG8
+    PIXELFORMAT_RGBA8I, PIXELFORMAT_RGBA8U, PIXELFORMAT_R16F, PIXELFORMAT_RG16F, PIXELFORMAT_R8, PIXELFORMAT_RG8,
+    TEXTUREDIMENSION_2D,
+    TEXTUREDIMENSION_3D,
+    TEXTUREDIMENSION_CUBE,
+    TEXTUREDIMENSION_2D_ARRAY
 } from '../constants.js';
+import { TEXTURE_OPERATION_NONE, TEXTURE_OPERATION_UPLOAD, TEXTURE_OPERATION_UPLOAD_PARTIAL } from '../texture.js';
 
 /**
  * Checks that an image's width and height do not exceed the max texture size. If they do, it will
@@ -384,8 +389,282 @@ class WebglTexture {
 
             device.bindTexture(texture);
             this.upload(device, texture);
-            texture._needsUpload = false;
-            texture._needsMipmapsUpload = false;
+        }
+    }
+
+    uploadTexture2D(device, texture, mipLevel, mipObject) {
+        const gl = device.gl;
+                        // ----- 2D -----
+        if (device._isBrowserInterface(mipObject)) {
+                            // Downsize images that are too large to be used as textures
+            if (device._isImageBrowserInterface(mipObject)) {
+                if (mipObject.width > device.maxTextureSize || mipObject.height > device.maxTextureSize) {
+                    mipObject = downsampleImage(mipObject, device.maxTextureSize);
+                    if (mipLevel === 0) {
+                        texture._width = mipObject.width;
+                        texture._height = mipObject.height;
+                    }
+                }
+            }
+
+            const w = mipObject.width || mipObject.videoWidth;
+            const h = mipObject.height || mipObject.videoHeight;
+
+                            // Upload the image, canvas or video
+            device.setUnpackFlipY(texture._flipY);
+            device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
+
+                            // TEMP: disable fast path for video updates until
+                            // https://bugs.chromium.org/p/chromium/issues/detail?id=1511207 is resolved
+            if (this._glCreated && texture._width === w && texture._height === h && !device._isImageVideoInterface(mipObject)) {
+                gl.texSubImage2D(
+                    gl.TEXTURE_2D,
+                    mipLevel,
+                    0, 0,
+                    this._glFormat,
+                    this._glPixelType,
+                    mipObject
+                );
+            } else {
+                gl.texImage2D(
+                    gl.TEXTURE_2D,
+                    mipLevel,
+                    this._glInternalFormat,
+                    this._glFormat,
+                    this._glPixelType,
+                    mipObject
+                );
+                this._glCreated = true;
+
+                if (mipLevel === 0) {
+                    texture._width = w;
+                    texture._height = h;
+                }
+            }
+        } else {
+                            // Upload the byte array
+            const resMult = 1 / Math.pow(2, mipLevel);
+            if (texture._compressed) {
+                if (this._glCreated && mipObject) {
+                    gl.compressedTexSubImage2D(
+                        gl.TEXTURE_2D,
+                        mipLevel,
+                        0, 0,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        this._glInternalFormat,
+                        mipObject
+                    );
+                } else {
+                    gl.compressedTexImage2D(
+                        gl.TEXTURE_2D,
+                        mipLevel,
+                        this._glInternalFormat,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        0,
+                        mipObject
+                    );
+                    this._glCreated = true;
+                }
+            } else {
+                device.setUnpackFlipY(false);
+                device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
+                if (this._glCreated && mipObject) {
+                    gl.texSubImage2D(
+                        gl.TEXTURE_2D,
+                        mipLevel,
+                        0, 0,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        this._glFormat,
+                        this._glPixelType,
+                        mipObject
+                    );
+                } else {
+                    gl.texImage2D(
+                        gl.TEXTURE_2D,
+                        mipLevel,
+                        this._glInternalFormat,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        0,
+                        this._glFormat,
+                        this._glPixelType,
+                        mipObject
+                    );
+                    this._glCreated = true;
+                }
+            }
+        }
+    }
+
+    uploadTexture3D(device, texture, mipLevel, mipObject) {
+        const gl = device.gl;
+        const resMult = 1 / Math.pow(2, mipLevel);
+        // Image/canvas/video not supported (yet?)
+        // Upload the byte array
+        if (texture._compressed) {
+            gl.compressedTexImage3D(gl.TEXTURE_3D,
+                                    mipLevel,
+                                    this._glInternalFormat,
+                                    Math.max(Math.floor(texture._width * resMult), 1),
+                                    Math.max(Math.floor(texture._height * resMult), 1),
+                                    Math.max(Math.floor(texture._slices * resMult), 1),
+                                    0,
+                                    mipObject);
+        } else {
+            device.setUnpackFlipY(false);
+            device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
+            gl.texImage3D(gl.TEXTURE_3D,
+                          mipLevel,
+                          this._glInternalFormat,
+                          Math.max(Math.floor(texture._width * resMult), 1),
+                          Math.max(Math.floor(texture._height * resMult), 1),
+                          Math.max(Math.floor(texture._slices * resMult), 1),
+                          0,
+                          this._glFormat,
+                          this._glPixelType,
+                          mipObject);
+            this._glCreated = true;
+        }
+
+    }
+
+    uploadTextureCube(device, texture, mipLevel, face, faceObject) {
+        const gl = device.gl;
+        // Upload the image, canvas or video
+        if (device._isBrowserInterface(faceObject)) {
+            // Downsize images that are too large to be used as cube maps
+            if (device._isImageBrowserInterface(faceObject)) {
+                if (faceObject.width > device.maxCubeMapSize || faceObject.height > device.maxCubeMapSize) {
+                    faceObject = downsampleImage(faceObject, device.maxCubeMapSize);
+                    if (mipLevel === 0) {
+                        texture._width = faceObject.width;
+                        texture._height = faceObject.height;
+                    }
+                }
+            }
+
+            device.setUnpackFlipY(false);
+            device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
+
+            if (this._glCreated) {
+                gl.texSubImage2D(
+                    gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                    mipLevel,
+                    0, 0,
+                    this._glFormat,
+                    this._glPixelType,
+                    faceObject
+                );
+            } else {
+                gl.texImage2D(
+                    gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                    mipLevel,
+                    this._glInternalFormat,
+                    this._glFormat,
+                    this._glPixelType,
+                    faceObject
+                );
+            }
+        } else {
+                            // Upload the byte array
+            const resMult = 1 / Math.pow(2, mipLevel);
+            if (texture._compressed) {
+                if (this._glCreated && faceObject) {
+                    gl.compressedTexSubImage2D(
+                        gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                        mipLevel,
+                        0, 0,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        this._glInternalFormat,
+                        faceObject);
+                } else {
+                    gl.compressedTexImage2D(
+                        gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                        mipLevel,
+                        this._glInternalFormat,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        0,
+                        faceObject
+                    );
+                }
+            } else {
+                device.setUnpackFlipY(false);
+                device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
+                if (this._glCreated && faceObject) {
+                    gl.texSubImage2D(
+                        gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                        mipLevel,
+                        0, 0,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        this._glFormat,
+                        this._glPixelType,
+                        faceObject
+                    );
+                } else {
+                    gl.texImage2D(
+                        gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                        mipLevel,
+                        this._glInternalFormat,
+                        Math.max(Math.floor(texture._width * resMult), 1),
+                        Math.max(Math.floor(texture._height * resMult), 1),
+                        0,
+                        this._glFormat,
+                        this._glPixelType,
+                        faceObject
+                    );
+                }
+            }
+        }
+    }
+
+    uploadTextureArray(device, texture, requiredMipLevels, mipLevel, slice, sliceObject) {
+        const gl = device.gl;
+
+        if (!this._glCreated) {
+            // for texture arrays we reserve the space first time we upload
+            gl.texStorage3D(gl.TEXTURE_2D_ARRAY,
+                            requiredMipLevels,
+                            this._glInternalFormat,
+                            texture._width,
+                            texture._height,
+                            texture._slices);
+            this._glCreated = true;
+        }
+
+        const resMult = 1 / Math.pow(2, mipLevel);
+        if (texture._compressed) {
+            gl.compressedTexSubImage3D(
+                gl.TEXTURE_2D_ARRAY,
+                mipLevel,
+                0,
+                0,
+                slice,
+                Math.max(Math.floor(texture._width * resMult), 1),
+                Math.max(Math.floor(texture._height * resMult), 1),
+                1,
+                this._glFormat,
+                sliceObject
+            );
+        } else {
+            gl.texSubImage3D(
+                gl.TEXTURE_2D_ARRAY,
+                mipLevel,
+                0,
+                0,
+                slice,
+                Math.max(Math.floor(texture._width * resMult), 1),
+                Math.max(Math.floor(texture._height * resMult), 1),
+                1,
+                this._glFormat,
+                this._glPixelType,
+                sliceObject
+            );
         }
     }
 
@@ -396,337 +675,119 @@ class WebglTexture {
     upload(device, texture) {
 
         Debug.assert(texture.device, "Attempting to use a texture that has been destroyed.", texture);
-        const gl = device.gl;
 
-        if (!texture._needsUpload && ((texture._needsMipmapsUpload && texture._mipmapsUploaded) || !texture.pot))
+
+        if (texture._operation === TEXTURE_OPERATION_NONE)
             return;
 
-        let mipLevel = 0;
-        let mipObject;
-        let resMult;
-
+        const gl = device.gl;
         const requiredMipLevels = texture.requiredMipLevels;
 
-        if (texture.array) {
-            // for texture arrays we reserve the space in advance
-            gl.texStorage3D(gl.TEXTURE_2D_ARRAY,
-                            requiredMipLevels,
-                            this._glInternalFormat,
-                            texture._width,
-                            texture._height,
-                            texture._slices);
-        }
+        let anyUploads = false;
+        let anyLevelMissing = false;
 
-        // Upload all existing mip levels. Initialize 0 mip anyway.
-        while (texture._levels[mipLevel] || mipLevel === 0) {
-
-            if (!texture._needsUpload && mipLevel === 0) {
-                mipLevel++;
-                continue;
-            } else if (mipLevel && (!texture._needsMipmapsUpload || !texture._mipmaps)) {
-                break;
+        // partial uploads are most common for texture arrays (maybe cubemaps too?)
+        if (texture._operation & TEXTURE_OPERATION_UPLOAD_PARTIAL || texture._dirtyLevels.size > 0) {
+            // we track slices from level 0 that are dirty
+            // if we don't have a full set of mips uploaded by the end, we need to to generate all mips for those slices
+            // otherwise we assume that developer knows what he is doing and only wants to upload the dirty slices
+            const mipmapTracking = {};
+            for (const [dirtyLevel, dirtySlices] of texture._dirtyLevels) {
+                if (texture.array || texture.cubemap) {
+                    Debug.assert(typeof dirtySlices !== 'boolean', "Invalid dirty slices for texture array or cubemap.");
+                    for (const dirtySlice of dirtySlices) {
+                        if (dirtyLevel === 0) {
+                            mipmapTracking[dirtySlice] = 0;
+                        }
+                        const sliceObject = texture._levels.get(dirtyLevel).get(dirtySlice);
+                        if (sliceObject) {
+                            if (mipmapTracking[dirtySlice] !== undefined) {
+                                mipmapTracking[dirtySlice]++;
+                            }
+                            switch (texture._dimension) {
+                                case TEXTUREDIMENSION_CUBE:
+                                    this.uploadTextureCube(device, texture, dirtyLevel, dirtySlice, sliceObject);
+                                    break;
+                                case TEXTUREDIMENSION_2D_ARRAY:
+                                    this.uploadTextureArray(device, texture, requiredMipLevels, dirtyLevel, dirtySlice, sliceObject);
+                                    break;
+                            }
+                        }
+                    }
+                } else {
+                    const mipObject = texture._levels.get(dirtyLevel);
+                    if (mipObject) {
+                        if (dirtyLevel === 0) {
+                            // we only have one slice for 2D textures or 3D textures
+                            mipmapTracking[0] = 0;
+                        }
+                        switch (texture._dimension) {
+                            case TEXTUREDIMENSION_2D:
+                                this.uploadTexture2D(device, texture, dirtyLevel, mipObject);
+                                break;
+                            case TEXTUREDIMENSION_3D:
+                                this.uploadTexture3D(device, texture, dirtyLevel, mipObject);
+                                break;
+                        }
+                        if (mipmapTracking[0] !== undefined) {
+                            mipmapTracking[0]++;
+                        }
+                    }
+                }
             }
 
-            mipObject = texture._levels[mipLevel];
-            resMult = 1 / Math.pow(2, mipLevel);
+            this.generateMipmapsIfNeeded(device, texture, mipmapTracking);
 
-            if (mipLevel === 1 && !texture._compressed && !texture._integerFormat && texture._levels.length < requiredMipLevels) {
-                // We have more than one mip levels we want to assign, but we need all mips to make
-                // the texture complete. Therefore first generate all mip chain from 0, then assign custom mips.
-                // (this implies the call to _completePartialMipLevels above was unsuccessful)
-                gl.generateMipmap(this._glTarget);
-                texture._mipmapsUploaded = true;
-            }
+        } else if (texture._operation & TEXTURE_OPERATION_UPLOAD) {
 
-            if (texture.cubemap) {
-                // ----- CUBEMAP -----
-                let face;
+            for (let mipLevel = 0; mipLevel < requiredMipLevels; mipLevel++) {
+                const mipObject = texture._levels.get(mipLevel);
 
-                if (device._isBrowserInterface(mipObject[0])) {
-                    // Upload the image, canvas or video
-                    for (face = 0; face < texture.slices; face++) {
-                        if (!texture._levelsUpdated[0][face])
-                            continue;
-
-                        let src = mipObject[face];
-                        // Downsize images that are too large to be used as cube maps
-                        if (device._isImageBrowserInterface(src)) {
-                            if (src.width > device.maxCubeMapSize || src.height > device.maxCubeMapSize) {
-                                src = downsampleImage(src, device.maxCubeMapSize);
-                                if (mipLevel === 0) {
-                                    texture._width = src.width;
-                                    texture._height = src.height;
+                switch (texture._dimension) {
+                    case TEXTUREDIMENSION_2D:
+                        this.uploadTexture2D(device, texture, mipLevel, mipObject);
+                        anyUploads = true;
+                        break;
+                    case TEXTUREDIMENSION_3D:
+                        this.uploadTexture3D(device, texture, mipLevel, mipObject);
+                        anyUploads = true;
+                        break;
+                    case TEXTUREDIMENSION_CUBE:
+                        if (mipObject) {
+                            for (let slice = 0; slice < texture.slices; slice++) {
+                                const sliceObject = mipObject.get(slice);
+                                if (sliceObject) {
+                                    this.uploadTextureCube(device, texture, mipLevel, slice, sliceObject);
+                                    anyUploads = true;
+                                } else {
+                                    anyLevelMissing = true;
                                 }
                             }
-                        }
-
-                        device.setUnpackFlipY(false);
-                        device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
-
-                        if (this._glCreated) {
-                            gl.texSubImage2D(
-                                gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                                mipLevel,
-                                0, 0,
-                                this._glFormat,
-                                this._glPixelType,
-                                src
-                            );
                         } else {
-                            gl.texImage2D(
-                                gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                                mipLevel,
-                                this._glInternalFormat,
-                                this._glFormat,
-                                this._glPixelType,
-                                src
-                            );
+                            anyLevelMissing = true;
                         }
-                    }
-                } else {
-                    // Upload the byte array
-                    resMult = 1 / Math.pow(2, mipLevel);
-                    for (face = 0; face < texture.slices; face++) {
-                        if (!texture._levelsUpdated[0][face])
-                            continue;
-
-                        const texData = mipObject[face];
-                        if (texture._compressed) {
-                            if (this._glCreated && texData) {
-                                gl.compressedTexSubImage2D(
-                                    gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                                    mipLevel,
-                                    0, 0,
-                                    Math.max(texture._width * resMult, 1),
-                                    Math.max(texture._height * resMult, 1),
-                                    this._glInternalFormat,
-                                    texData);
-                            } else {
-                                gl.compressedTexImage2D(
-                                    gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                                    mipLevel,
-                                    this._glInternalFormat,
-                                    Math.max(texture._width * resMult, 1),
-                                    Math.max(texture._height * resMult, 1),
-                                    0,
-                                    texData
-                                );
+                        break;
+                    case TEXTUREDIMENSION_2D_ARRAY:
+                        if (mipObject) {
+                            for (let slice = 0; slice < texture.slices; slice++) {
+                                const sliceObject = mipObject.get(slice);
+                                if (sliceObject) {
+                                    this.uploadTextureArray(device, texture, requiredMipLevels, mipLevel, slice, sliceObject);
+                                    anyUploads = true;
+                                } else {
+                                    anyLevelMissing = true;
+                                }
                             }
                         } else {
-                            device.setUnpackFlipY(false);
-                            device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
-                            if (this._glCreated && texData) {
-                                gl.texSubImage2D(
-                                    gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                                    mipLevel,
-                                    0, 0,
-                                    Math.max(texture._width * resMult, 1),
-                                    Math.max(texture._height * resMult, 1),
-                                    this._glFormat,
-                                    this._glPixelType,
-                                    texData
-                                );
-                            } else {
-                                gl.texImage2D(
-                                    gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
-                                    mipLevel,
-                                    this._glInternalFormat,
-                                    Math.max(texture._width * resMult, 1),
-                                    Math.max(texture._height * resMult, 1),
-                                    0,
-                                    this._glFormat,
-                                    this._glPixelType,
-                                    texData
-                                );
-                            }
+                            anyLevelMissing = true;
                         }
-                    }
-                }
-            } else if (texture.volume) {
-                // ----- 3D -----
-                // Image/canvas/video not supported (yet?)
-                // Upload the byte array
-                if (texture._compressed) {
-                    gl.compressedTexImage3D(gl.TEXTURE_3D,
-                                            mipLevel,
-                                            this._glInternalFormat,
-                                            Math.max(texture._width * resMult, 1),
-                                            Math.max(texture._height * resMult, 1),
-                                            Math.max(texture._slices * resMult, 1),
-                                            0,
-                                            mipObject);
-                } else {
-                    device.setUnpackFlipY(false);
-                    device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
-                    gl.texImage3D(gl.TEXTURE_3D,
-                                  mipLevel,
-                                  this._glInternalFormat,
-                                  Math.max(texture._width * resMult, 1),
-                                  Math.max(texture._height * resMult, 1),
-                                  Math.max(texture._slices * resMult, 1),
-                                  0,
-                                  this._glFormat,
-                                  this._glPixelType,
-                                  mipObject);
-                }
-            } else if (texture.array && typeof mipObject === "object") {
-                if (texture._slices === mipObject.length) {
-                    if (texture._compressed) {
-                        for (let index = 0; index < texture._slices; index++) {
-                            gl.compressedTexSubImage3D(
-                                gl.TEXTURE_2D_ARRAY,
-                                mipLevel,
-                                0,
-                                0,
-                                index,
-                                Math.max(Math.floor(texture._width * resMult), 1),
-                                Math.max(Math.floor(texture._height * resMult), 1),
-                                1,
-                                this._glFormat,
-                                mipObject[index]
-                            );
-                        }
-                    } else {
-                        for (let index = 0; index < texture.slices; index++) {
-                            gl.texSubImage3D(
-                                gl.TEXTURE_2D_ARRAY,
-                                mipLevel,
-                                0,
-                                0,
-                                index,
-                                Math.max(Math.floor(texture._width * resMult), 1),
-                                Math.max(Math.floor(texture._height * resMult), 1),
-                                1,
-                                this._glFormat,
-                                this._glPixelType,
-                                mipObject[index]
-                            );
-                        }
-                    }
-                }
-            } else {
-                // ----- 2D -----
-                if (device._isBrowserInterface(mipObject)) {
-                    // Downsize images that are too large to be used as textures
-                    if (device._isImageBrowserInterface(mipObject)) {
-                        if (mipObject.width > device.maxTextureSize || mipObject.height > device.maxTextureSize) {
-                            mipObject = downsampleImage(mipObject, device.maxTextureSize);
-                            if (mipLevel === 0) {
-                                texture._width = mipObject.width;
-                                texture._height = mipObject.height;
-                            }
-                        }
-                    }
-
-                    const w = mipObject.width || mipObject.videoWidth;
-                    const h = mipObject.height || mipObject.videoHeight;
-
-                    // Upload the image, canvas or video
-                    device.setUnpackFlipY(texture._flipY);
-                    device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
-
-                    // TEMP: disable fast path for video updates until
-                    // https://bugs.chromium.org/p/chromium/issues/detail?id=1511207 is resolved
-                    if (this._glCreated && texture._width === w && texture._height === h && !device._isImageVideoInterface(mipObject)) {
-                        gl.texSubImage2D(
-                            gl.TEXTURE_2D,
-                            mipLevel,
-                            0, 0,
-                            this._glFormat,
-                            this._glPixelType,
-                            mipObject
-                        );
-                    } else {
-                        gl.texImage2D(
-                            gl.TEXTURE_2D,
-                            mipLevel,
-                            this._glInternalFormat,
-                            this._glFormat,
-                            this._glPixelType,
-                            mipObject
-                        );
-
-                        if (mipLevel === 0) {
-                            texture._width = w;
-                            texture._height = h;
-                        }
-                    }
-                } else {
-                    // Upload the byte array
-                    resMult = 1 / Math.pow(2, mipLevel);
-                    if (texture._compressed) {
-                        if (this._glCreated && mipObject) {
-                            gl.compressedTexSubImage2D(
-                                gl.TEXTURE_2D,
-                                mipLevel,
-                                0, 0,
-                                Math.max(Math.floor(texture._width * resMult), 1),
-                                Math.max(Math.floor(texture._height * resMult), 1),
-                                this._glInternalFormat,
-                                mipObject
-                            );
-                        } else {
-                            gl.compressedTexImage2D(
-                                gl.TEXTURE_2D,
-                                mipLevel,
-                                this._glInternalFormat,
-                                Math.max(Math.floor(texture._width * resMult), 1),
-                                Math.max(Math.floor(texture._height * resMult), 1),
-                                0,
-                                mipObject
-                            );
-                        }
-                    } else {
-                        device.setUnpackFlipY(false);
-                        device.setUnpackPremultiplyAlpha(texture._premultiplyAlpha);
-                        if (this._glCreated && mipObject) {
-                            gl.texSubImage2D(
-                                gl.TEXTURE_2D,
-                                mipLevel,
-                                0, 0,
-                                Math.max(texture._width * resMult, 1),
-                                Math.max(texture._height * resMult, 1),
-                                this._glFormat,
-                                this._glPixelType,
-                                mipObject
-                            );
-                        } else {
-                            gl.texImage2D(
-                                gl.TEXTURE_2D,
-                                mipLevel,
-                                this._glInternalFormat,
-                                Math.max(texture._width * resMult, 1),
-                                Math.max(texture._height * resMult, 1),
-                                0,
-                                this._glFormat,
-                                this._glPixelType,
-                                mipObject
-                            );
-                        }
-                    }
+                        break;
                 }
 
-                if (mipLevel === 0) {
-                    texture._mipmapsUploaded = false;
-                } else {
-                    texture._mipmapsUploaded = true;
+                if (anyUploads && anyLevelMissing && texture.mipmaps && !texture._compressed) {
+                    gl.generateMipmap(this._glTarget);
                 }
             }
-            mipLevel++;
-        }
-
-        if (texture._needsUpload) {
-            if (texture.cubemap) {
-                for (let i = 0; i < texture.slices; i++)
-                    texture._levelsUpdated[0][i] = false;
-            } else {
-                texture._levelsUpdated[0] = false;
-            }
-        }
-
-        if (!texture._compressed && !texture._integerFormat && texture._mipmaps && texture._needsMipmapsUpload && texture._levels.length === 1) {
-            gl.generateMipmap(this._glTarget);
-            texture._mipmapsUploaded = true;
         }
 
         // update vram stats
@@ -737,7 +798,26 @@ class WebglTexture {
         texture._gpuSize = texture.gpuSize;
         texture.adjustVramSizeTracking(device._vram, texture._gpuSize);
 
+        texture._operation = TEXTURE_OPERATION_NONE;
+        texture._dirtyLevels.clear();
         this._glCreated = true;
+    }
+
+    generateMipmapsIfNeeded(device, texture, mipmapTracking) {
+        const gl = device.gl;
+        const requiredMipLevels = texture.requiredMipLevels;
+        let anyLevelMissing = false;
+        for (const slice in mipmapTracking) {
+            if (mipmapTracking[slice] !== requiredMipLevels) {
+                anyLevelMissing = true;
+                break;
+            }
+        }
+
+        // TODO generate per slice mips using a mipmap renderer like we do for WebGPU
+        if (anyLevelMissing && texture.mipmaps && !texture._compressed) {
+            gl.generateMipmap(this._glTarget);
+        }
     }
 
     read(x, y, width, height, options) {

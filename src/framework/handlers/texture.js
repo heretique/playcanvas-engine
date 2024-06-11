@@ -7,7 +7,7 @@ import {
     PIXELFORMAT_RGB8, PIXELFORMAT_RGBA8, PIXELFORMAT_RGBA32F,
     TEXTURETYPE_DEFAULT, TEXTURETYPE_RGBE, TEXTURETYPE_RGBM, TEXTURETYPE_SWIZZLEGGGR, TEXTURETYPE_RGBP
 } from '../../platform/graphics/constants.js';
-import { Texture } from '../../platform/graphics/texture.js';
+import { TEXTURE_OPERATION_UPLOAD, Texture } from '../../platform/graphics/texture.js';
 import { TextureUtils } from '../../platform/graphics/texture-utils.js';
 
 import { BasisParser } from '../parsers/texture/basis.js';
@@ -62,9 +62,9 @@ const _completePartialMipmapChain = function (texture) {
           texture._format === PIXELFORMAT_RGBA32F) ||
           texture.volume ||
           texture._compressed ||
-          texture._levels.length === 1 ||
-          texture._levels.length === requiredMipLevels ||
-          isHtmlElement(texture.cubemap ? texture._levels[0][0] : texture._levels[0])) {
+          texture._levels.size === 1 ||
+          texture._levels.size === requiredMipLevels ||
+          isHtmlElement(texture.cubemap ? texture._levels.get(0)?.get(0) : texture._levels.get(0))) {
         return;
     }
 
@@ -95,21 +95,21 @@ const _completePartialMipmapChain = function (texture) {
     };
 
     // step through levels
-    for (let level = texture._levels.length; level < requiredMipLevels; ++level) {
+    for (let level = texture._levels.size; level < requiredMipLevels; ++level) {
         const width = Math.max(1, texture._width >> (level - 1));
         const height = Math.max(1, texture._height >> (level - 1));
         if (texture.cubemap) {
             const mips = [];
             for (let face = 0; face < 6; ++face) {
-                mips.push(downsample(width, height, texture._levels[level - 1][face]));
+                mips.push(downsample(width, height, texture._levels.get(level - 1)?.get(face)));
             }
-            texture._levels.push(mips);
+            texture._levels.set(level, mips);
         } else {
-            texture._levels.push(downsample(width, height, texture._levels[level - 1]));
+            texture._levels.set(level, downsample(width, height, texture._levels.get(level - 1)));
         }
     }
 
-    texture._levelsUpdated = texture.cubemap ? [[true, true, true, true, true, true]] : [true];
+    texture._operation |= TEXTURE_OPERATION_UPLOAD;
 };
 
 /**

@@ -30,6 +30,7 @@ import { WebgpuCompute } from './webgpu-compute.js';
 import { WebgpuBuffer } from './webgpu-buffer.js';
 import { BindGroupFormat } from '../bind-group-format.js';
 import { BindGroup } from '../bind-group.js';
+import { TEXTURE_OPERATION_UPLOAD, TEXTURE_OPERATION_UPLOAD_PARTIAL } from '../texture.js';
 
 const _uniqueLocations = new Map();
 
@@ -603,8 +604,8 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
     _uploadDirtyTextures() {
 
         this.textures.forEach((texture) => {
-            if (texture._needsUpload || texture._needsMipmaps) {
-                texture.upload();
+            if (texture._operation & TEXTURE_OPERATION_UPLOAD || texture._operation & TEXTURE_OPERATION_UPLOAD_PARTIAL) {
+                texture.impl.uploadImmediate(this, texture);
             }
         });
     }

@@ -50,16 +50,16 @@ function shFromCubemap(device, source, dontFlipX) {
         Debug.error("ERROR: SH: cubemap must be RGBA8");
         return null;
     }
-    if (!source._levels[0] || !source._levels[0][0]) {
+    if (!source._levels.get(0) || !source._levels.get(0)?.get(0)) {
         Debug.error("ERROR: SH: cubemap must be synced to CPU");
         return null;
     }
 
     const cubeSize = source.width;
 
-    if (!source._levels[0][0].length) {
+    if (!source._levels.get(0)?.get(0).size) {
         // Cubemap is not composed of arrays
-        if (source._levels[0][0] instanceof HTMLImageElement) {
+        if (source._levels.get(0)?.get(0) instanceof HTMLImageElement) {
             // Cubemap is made of imgs - convert to arrays
             const shader = createShaderFromCode(device,
                                                 shaderChunks.fullscreenQuadVS,
@@ -67,7 +67,7 @@ function shFromCubemap(device, source, dontFlipX) {
                                                 "fsQuadSimple");
             const constantTexSource = device.scope.resolve("source");
             for (let face = 0; face < 6; face++) {
-                const img = source._levels[0][face];
+                const img = source._levels.get(0)?.get(face);
 
                 const tex = new Texture(device, {
                     name: 'prefiltered-cube',
@@ -78,7 +78,7 @@ function shFromCubemap(device, source, dontFlipX) {
                     height: cubeSize,
                     mipmaps: false
                 });
-                tex._levels[0] = img;
+                tex._levels.set(0, img);
                 tex.upload();
 
                 const tex2 = new Texture(device, {
@@ -105,7 +105,7 @@ function shFromCubemap(device, source, dontFlipX) {
                 const pixels = new Uint8Array(cubeSize * cubeSize * 4);
                 gl.readPixels(0, 0, tex.width, tex.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-                source._levels[0][face] = pixels;
+                source._levels.get(0)?.set(face, pixels);
             }
         } else {
             Debug.error("ERROR: SH: cubemap must be composed of arrays or images");
@@ -187,10 +187,10 @@ function shFromCubemap(device, source, dontFlipX) {
 
                 if (!dontFlipX) dx = -dx; // flip original cubemap x instead of doing it at runtime
 
-                const a = source._levels[0][face][addr * 4 + 3] / 255.0;
+                const a = source._levels.get(0)?.get(face)?.[addr * 4 + 3] / 255.0;
 
                 for (let c = 0; c < 3; c++) {
-                    let value =  source._levels[0][face][addr * 4 + c] / 255.0;
+                    let value =  source._levels.get(0)?.get(face)?.[addr * 4 + c] / 255.0;
                     if (source.type === TEXTURETYPE_RGBM) {
                         value *= a * 8.0;
                         value *= value;

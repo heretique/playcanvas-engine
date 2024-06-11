@@ -154,10 +154,10 @@ class DdsParser extends TextureParser {
                         new Uint8Array(data, offset, mipSize));
 
                 if (!isCubemap) {
-                    texture._levels[i] = mipBuff;
+                    texture._levels.set(i, mipBuff);
                 } else {
-                    if (!texture._levels[i]) texture._levels[i] = [];
-                    texture._levels[i][face] = mipBuff;
+                    if (!texture._levels.get(i)) texture._levels.set(i, new Map());
+                    texture._levels.get(i).set(face, mipBuff);
                 }
                 offset += mipSize * componentSize;
                 mipWidth = Math.max(mipWidth * 0.5, 1);

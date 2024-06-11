@@ -2,7 +2,7 @@ import { ADDRESS_CLAMP_TO_EDGE, FILTER_LINEAR, FILTER_LINEAR_MIPMAP_LINEAR } fro
 import { DebugGraphics } from "../../platform/graphics/debug-graphics.js";
 import { RenderPass } from "../../platform/graphics/render-pass.js";
 import { RenderTarget } from "../../platform/graphics/render-target.js";
-import { Texture } from "../../platform/graphics/texture.js";
+import { TEXTURE_OPERATION_NONE, Texture } from "../../platform/graphics/texture.js";
 
 // uniform names (first is current name, second one is deprecated name for compatibility)
 const _colorUniformNames = ['uSceneColorMap', 'texture_grabPass'];
@@ -149,8 +149,7 @@ class RenderPassColorGrab extends RenderPass {
             gl.copyTexImage2D(gl.TEXTURE_2D, 0, colorBuffer.impl._glFormat, 0, 0, colorBuffer.width, colorBuffer.height, 0);
 
             // stop the device from updating this texture further
-            colorBuffer._needsUpload = false;
-            colorBuffer._needsMipmapsUpload = false;
+            colorBuffer._operation = TEXTURE_OPERATION_NONE;
         }
 
         DebugGraphics.popGpuMarker(device);

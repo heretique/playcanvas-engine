@@ -29,7 +29,7 @@ import {
 
 import { GraphicsDevice } from '../graphics-device.js';
 import { RenderTarget } from '../render-target.js';
-import { Texture } from '../texture.js';
+import { TEXTURE_OPERATION_CLEAR_MIPS, TEXTURE_OPERATION_NONE, Texture } from '../texture.js';
 import { DebugGraphics } from '../debug-graphics.js';
 
 import { WebglVertexBuffer } from './webgl-vertex-buffer.js';
@@ -1632,7 +1632,7 @@ class WebglGraphicsDevice extends GraphicsDevice {
 
         if (flags & 1) {
             let filter = texture._minFilter;
-            if (!texture._mipmaps || (texture._compressed && texture._levels.length === 1)) {
+            if (!texture._mipmaps || (texture._compressed && texture._levels.size === 1)) {
                 if (filter === FILTER_NEAREST_MIPMAP_NEAREST || filter === FILTER_NEAREST_MIPMAP_LINEAR) {
                     filter = FILTER_NEAREST;
                 } else if (filter === FILTER_LINEAR_MIPMAP_NEAREST || filter === FILTER_LINEAR_MIPMAP_LINEAR) {
@@ -1680,7 +1680,7 @@ class WebglGraphicsDevice extends GraphicsDevice {
         if (!impl._glTexture)
             impl.initialize(this, texture);
 
-        if (impl.dirtyParameterFlags > 0 || texture._needsUpload || texture._needsMipmapsUpload) {
+        if (impl.dirtyParameterFlags > 0 || texture._operation !== TEXTURE_OPERATION_NONE) {
 
             // Ensure the specified texture unit is active
             this.activeTexture(textureUnit);
@@ -1693,10 +1693,12 @@ class WebglGraphicsDevice extends GraphicsDevice {
                 impl.dirtyParameterFlags = 0;
             }
 
-            if (texture._needsUpload || texture._needsMipmapsUpload) {
+            if (texture._operation & TEXTURE_OPERATION_CLEAR_MIPS) {
+                impl.destroy(this);
+                texture._operation &= ~TEXTURE_OPERATION_CLEAR_MIPS;
+                this.setTexture(texture, textureUnit);
+            } else if (texture._operation !== TEXTURE_OPERATION_NONE) {
                 impl.upload(this, texture);
-                texture._needsUpload = false;
-                texture._needsMipmapsUpload = false;
             }
         } else {
             // Ensure the texture is currently bound to the correct target on the specified texture unit.

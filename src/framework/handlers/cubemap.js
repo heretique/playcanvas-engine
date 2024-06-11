@@ -120,7 +120,7 @@ class CubemapHandler extends ResourceHandler {
                             width: tex.width >> i,
                             height: tex.height >> i,
                             format: tex.format,
-                            levels: [tex._levels[i]],
+                            levels: [tex._levels.get(i)],
                             addressU: ADDRESS_CLAMP_TO_EDGE,
                             addressV: ADDRESS_CLAMP_TO_EDGE,
                             // generate cubemaps on the top level only
@@ -155,9 +155,9 @@ class CubemapHandler extends ResourceHandler {
                     return asset.resource;
                 });
                 const faceLevels = [];
-                for (mip = 0; mip < faceTextures[0]._levels.length; ++mip) {
+                for (mip = 0; mip < faceTextures[0]._levels.size; ++mip) {
                     faceLevels.push(faceTextures.map(function (faceTexture) {  // eslint-disable-line no-loop-func
-                        return faceTexture._levels[mip];
+                        return faceTexture._levels.get(mip);
                     }));
                 }
 

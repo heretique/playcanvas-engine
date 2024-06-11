@@ -15,6 +15,7 @@ import {
 import { TextureUtils } from '../texture-utils.js';
 import { WebgpuDebug } from './webgpu-debug.js';
 import { gpuTextureFormats } from './constants.js';
+import { TEXTURE_OPERATION_NONE, TEXTURE_OPERATION_UPLOAD, TEXTURE_OPERATION_UPLOAD_PARTIAL } from '../texture.js';
 
 // map of ADDRESS_*** to GPUAddressMode
 const gpuAddressModes = [];
@@ -279,11 +280,9 @@ class WebgpuTexture {
      */
     uploadImmediate(device, texture) {
 
-        if (texture._needsUpload || texture._needsMipmapsUpload) {
+        if (texture._operation & TEXTURE_OPERATION_UPLOAD || texture._operation & TEXTURE_OPERATION_UPLOAD_PARTIAL) {
             this.uploadData(device);
-
-            texture._needsUpload = false;
-            texture._needsMipmapsUpload = false;
+            texture._operation = TEXTURE_OPERATION_NONE;
         }
     }
 
@@ -294,7 +293,7 @@ class WebgpuTexture {
     uploadData(device) {
 
         const texture = this.texture;
-        if (texture._levels) {
+        if (texture._levels.size > 0) {
 
             // upload texture data if any
             let anyUploads = false;
@@ -302,14 +301,14 @@ class WebgpuTexture {
             const requiredMipLevels = texture.requiredMipLevels;
             for (let mipLevel = 0; mipLevel < requiredMipLevels; mipLevel++) {
 
-                const mipObject = texture._levels[mipLevel];
+                const mipObject = texture._levels.get(mipLevel);
                 if (mipObject) {
 
                     if (texture.cubemap) {
 
                         for (let face = 0; face < 6; face++) {
 
-                            const faceSource = mipObject[face];
+                            const faceSource = mipObject.get(face);
                             if (faceSource) {
                                 if (this.isExternalImage(faceSource)) {
 
@@ -339,7 +338,7 @@ class WebgpuTexture {
                         if (texture.slices === mipObject.length) {
 
                             for (let index = 0; index < texture.slices; index++) {
-                                const arraySource = mipObject[index];
+                                const arraySource = mipObject.get(index);
 
                                 if (this.isExternalImage(arraySource)) {
 
@@ -382,7 +381,7 @@ class WebgpuTexture {
                 }
             }
 
-            if (anyUploads && anyLevelMissing && texture.mipmaps && !isCompressedPixelFormat(texture.format)) {
+            if (anyUploads && anyLevelMissing && texture.mipmaps && !texture._compressed) {
                 device.mipmapRenderer.generate(this);
             }
 

@@ -446,17 +446,18 @@ const flipTexCoordVs = (vertexBuffer) => {
 // NOTE: CPU-side texture data will be shared but GPU memory will be duplicated
 const cloneTexture = (texture) => {
     const shallowCopyLevels = (texture) => {
-        const result = [];
-        for (let mip = 0; mip < texture._levels.length; ++mip) {
-            let level = [];
-            if (texture.cubemap) {
-                for (let face = 0; face < 6; ++face) {
-                    level.push(texture._levels[mip][face]);
+        const result = new Map();
+        for (let mip = 0; mip < texture._levels.size; ++mip) {
+            let level;
+            if (texture.cubemap || texture.array) {
+                level = new Map();
+                for (let slice = 0; slice < texture.slices; ++slice) {
+                    level.set(slice, texture._levels.get(mip)?.get(slice));
                 }
             } else {
-                level = texture._levels[mip];
+                level = texture._levels.get(mip);
             }
-            result.push(level);
+            result.set(mip, level);
         }
         return result;
     };

@@ -198,7 +198,7 @@ class GSplatSorter extends EventHandler {
 
         this.worker.onmessage = (message) => {
             const newData = message.data.data;
-            const oldData = this.orderTexture._levels[0].buffer;
+            const oldData = this.orderTexture.get(0)?.buffer;
 
             // send vertex storage to worker to start the next frame
             this.worker.postMessage({
@@ -206,7 +206,7 @@ class GSplatSorter extends EventHandler {
             }, [oldData]);
 
             // set new data directly on texture
-            this.orderTexture._levels[0] = new Uint32Array(newData);
+            this.orderTexture._levels.set(0, new Uint32Array(newData));
             this.orderTexture.upload();
 
             // set new data directly on texture
