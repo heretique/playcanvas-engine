@@ -135,7 +135,7 @@ assetListLoader.load(() => {
         dimension: pc.TEXTUREDIMENSION_2D_ARRAY,
         width: 1024,
         height: 1024,
-        slices: 4, // array texture with 4 textures
+        layers: 4, // array texture with 4 textures
         magFilter: pc.FILTER_NEAREST,
         minFilter: pc.FILTER_NEAREST_MIPMAP_NEAREST,
         mipmaps: true,
@@ -158,7 +158,7 @@ assetListLoader.load(() => {
     const mipmaps = generateMipmaps(textureArrayOptions.width, textureArrayOptions.height);
     const levels = mipmaps.map((data) => {
         const textures = [];
-        for (let i = 0; i < textureArrayOptions.slices; i++) {
+        for (let i = 0; i < textureArrayOptions.layers; i++) {
             textures.push(data);
         }
         return textures;
