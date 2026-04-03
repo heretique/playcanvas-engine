@@ -10,6 +10,7 @@ import { BatchGroup } from '../../../scene/batching/batch-group.js';
 import { StencilParameters } from '../../../platform/graphics/stencil-parameters.js';
 import { Entity } from '../../entity.js';
 import { Component } from '../component.js';
+import { transformStore, CUSTOM_SYNC } from '../../../scene/transform-store.js';
 import { ELEMENTTYPE_GROUP, ELEMENTTYPE_IMAGE, ELEMENTTYPE_TEXT, FITMODE_STRETCH } from './constants.js';
 import { ImageElement } from './image-element.js';
 import { TextElement } from './text-element.js';
@@ -2064,7 +2065,7 @@ class ElementComponent extends Component {
             return;
         }
 
-        if (typeof x === 'object') {
+        if (x instanceof Vec3) {
             position.copy(x);
         } else {
             position.set(x, y, z);
@@ -2088,7 +2089,7 @@ class ElementComponent extends Component {
      * @private
      */
     _setLocalPosition(x, y, z) {
-        if (typeof x === 'object') {
+        if (x instanceof Vec3) {
             this.localPosition.copy(x);
         } else {
             this.localPosition.set(x, y, z);
@@ -2578,6 +2579,8 @@ class ElementComponent extends Component {
             this.system.app.batcher?.insert(BatchGroup.ELEMENT, this.batchGroupId, this.entity);
         }
 
+        transformStore.flags[this.entity._slot] |= CUSTOM_SYNC;
+
         this.fire('enableelement');
     }
 
@@ -2606,6 +2609,8 @@ class ElementComponent extends Component {
         if (this._batchGroupId >= 0) {
             this.system.app.batcher?.remove(BatchGroup.ELEMENT, this.batchGroupId, this.entity);
         }
+
+        transformStore.flags[this.entity._slot] &= ~CUSTOM_SYNC;
 
         this.fire('disableelement');
     }
