@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head><title>TransformStore Access Pattern Benchmark</title></head>
+<body>
+<pre id="output">Running...</pre>
+<script>
+const SIZES = [1000, 10000, 50000];
+const ITERATIONS = 2000;
+const STRIDE = 10; // same as LOCAL_STRIDE
+const output = document.getElementById('output');
+let log = '';
+
+function logLine(msg) {
+    log += msg + '\n';
+    output.textContent = log;
+}
+
+// --- Pattern A: Indirect (through store reference) ---
+
+class Vec3Indirect {
+    constructor(store, offset) {
+        this._store = store;
+        this._offset = offset;
+    }
+    get x() { return this._store.data[this._offset]; }
+    set x(v) { this._store.data[this._offset] = v; this._store.flags[this._slotIdx] |= 3; }
+    get y() { return this._store.data[this._offset + 1]; }
+    set y(v) { this._store.data[this._offset + 1] = v; this._store.flags[this._slotIdx] |= 3; }
+    get z() { return this._store.data[this._offset + 2]; }
+    set z(v) { this._store.data[this._offset + 2] = v; this._store.flags[this._slotIdx] |= 3; }
+}
+
+// --- Pattern B: Direct (cached array reference) ---
+
+class Vec3Direct {
+    constructor(data, offset, flags, slotIdx) {
+        this._data = data;
+        this._offset = offset;
+        this._flags = flags;
+        this._slotIdx = slotIdx;
+    }
+    get x() { return this._data[this._offset]; }
+    set x(v) { this._data[this._offset] = v; this._flags[this._slotIdx] |= 3; }
+    get y() { return this._data[this._offset + 1]; }
+    set y(v) { this._data[this._offset + 1] = v; this._flags[this._slotIdx] |= 3; }
+    get z() { return this._data[this._offset + 2]; }
+    set z(v) { this._data[this._offset + 2] = v; this._flags[this._slotIdx] |= 3; }
+}
+
+// --- Benchmark runner ---
+
+function benchmarkPattern(name, createProxy, N) {
+    const store = {
+        data: new Float32Array(N * STRIDE),
+        flags: new Uint16Array(N)
+    };
+
+    // Initialize with some values
+    for (let i = 0; i < N; i++) {
+        const o = i * STRIDE;
+        store.data[o] = i;
+        store.data[o + 1] = i * 2;
+        store.data[o + 2] = i * 3;
+    }
+
+    const proxies = [];
+    for (let i = 0; i < N; i++) {
+        const p = createProxy(store, i * STRIDE, i);
+        proxies.push(p);
+    }
+
+    // Warm up
+    for (let iter = 0; iter < 100; iter++) {
+        for (let i = 0; i < N; i++) {
+            const p = proxies[i];
+            p.x = p.x * 2 + 1;
+            p.y = p.y * 2 + 1;
+            p.z = p.z * 2 + 1;
+        }
+    }
+
+    // Timed run
+    const times = [];
+    for (let iter = 0; iter < ITERATIONS; iter++) {
+        const start = performance.now();
+        for (let i = 0; i < N; i++) {
+            const p = proxies[i];
+            p.x = p.x * 2 + 1;
+            p.y = p.y * 2 + 1;
+            p.z = p.z * 2 + 1;
+        }
+        times.push(performance.now() - start);
+    }
+
+    times.sort((a, b) => a - b);
+    return times[Math.floor(times.length / 2)]; // median
+}
+
+function benchmarkGrowth(N) {
+    // Pattern B: simulate rebinding N proxies after growth
+    const oldData = new Float32Array(N * STRIDE);
+    const newData = new Float32Array(N * 2 * STRIDE);
+    newData.set(oldData);
+    const flags = new Uint16Array(N * 2);
+
+    const proxies = [];
+    for (let i = 0; i < N; i++) {
+        proxies.push(new Vec3Direct(oldData, i * STRIDE, flags, i));
+    }
+
+    const times = [];
+    for (let iter = 0; iter < 100; iter++) {
+        const start = performance.now();
+        for (let i = 0; i < N; i++) {
+            proxies[i]._data = newData;
+        }
+        times.push(performance.now() - start);
+    }
+    times.sort((a, b) => a - b);
+    return times[Math.floor(times.length / 2)];
+}
+
+// --- Run ---
+
+async function run() {
+    logLine('=== Transform Store Access Pattern Benchmark ===\n');
+
+    for (const N of SIZES) {
+        logLine(`--- N = ${N} ---`);
+
+        const indirectTime = benchmarkPattern(
+            'Indirect',
+            (store, offset, slot) => {
+                const p = new Vec3Indirect(store, offset);
+                p._slotIdx = slot;
+                return p;
+            },
+            N
+        );
+
+        const directTime = benchmarkPattern(
+            'Direct',
+            (store, offset, slot) => new Vec3Direct(store.data, offset, store.flags, slot),
+            N
+        );
+
+        const growthTime = benchmarkGrowth(N);
+
+        const ratio = ((indirectTime / directTime - 1) * 100).toFixed(1);
+        logLine(`  Indirect: ${indirectTime.toFixed(4)} ms (median per iteration)`);
+        logLine(`  Direct:   ${directTime.toFixed(4)} ms (median per iteration)`);
+        logLine(`  Ratio:    indirect is ${ratio}% ${indirectTime > directTime ? 'slower' : 'faster'}`);
+        logLine(`  Growth rebind (direct only): ${growthTime.toFixed(4)} ms for ${N} proxies`);
+        logLine('');
+
+        // Yield to browser
+        await new Promise(r => setTimeout(r, 0));
+    }
+
+    logLine('=== Done ===');
+    logLine('\nDecision: if indirect is within ~10% of direct, choose indirect (no rebind needed).');
+}
+
+run();
+</script>
+</body>
+</html>
