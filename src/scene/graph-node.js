@@ -968,10 +968,6 @@ static findNode(node, test) {
       return this.worldTransform;
     }
 
-    if (transformStore.lastWorldUpdate[slot] === transformStore.currentFrame) {
-      return this.worldTransform;
-    }
-
     if (this._parent) {
       this._parent.getWorldTransform();
     }
@@ -1694,7 +1690,11 @@ static findNode(node, test) {
         }
       }
 
-      transformStore.flags[slot] &= ~(DIRTY_LOCAL | DIRTY_WORLD);
+      // Clear only DIRTY_LOCAL (local matrix is now built). Leave DIRTY_WORLD
+      // so propagate() still processes this node and cascades to children.
+      // Without this, children of mid-frame-synced nodes would never get their
+      // world transforms updated by propagate().
+      transformStore.flags[slot] &= ~DIRTY_LOCAL;
     }
   }
 
