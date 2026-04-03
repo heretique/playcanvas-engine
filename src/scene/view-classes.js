@@ -1,3 +1,4 @@
+import { Quat } from '../core/math/quat.js';
 import { Vec3 } from '../core/math/vec3.js';
 
 const DIRTY_LOCAL_WORLD = 0x03; // DIRTY_LOCAL | DIRTY_WORLD
@@ -109,4 +110,124 @@ class Vec3View extends Vec3 {
     }
 }
 
-export { Vec3View };
+/**
+ * A Quat subclass that reads/writes from a backing store's typed array. Every write sets dirty
+ * flags on the store, enabling change tracking for the transform system.
+ */
+class QuatView extends Quat {
+    /** @private */
+    _store;
+
+    /** @private */
+    _arrayName;
+
+    /** @private */
+    _offset;
+
+    /** @private */
+    _slot;
+
+    /**
+     * @param {object} store - The backing store object containing typed arrays and flags.
+     * @param {string} arrayName - The property name of the typed array on the store.
+     * @param {number} offset - The starting index into the typed array.
+     * @param {number} slot - The slot index into the store's flags array.
+     */
+    constructor(store, arrayName, offset, slot) {
+        super();
+        // super() creates instance properties x, y, z, w that shadow our getters/setters.
+        // Delete them so the prototype accessors take effect.
+        delete this.x;
+        delete this.y;
+        delete this.z;
+        delete this.w;
+        this._store = store;
+        this._arrayName = arrayName;
+        this._offset = offset;
+        this._slot = slot;
+    }
+
+    get x() {
+        return this._store[this._arrayName][this._offset];
+    }
+
+    set x(value) {
+        this._store[this._arrayName][this._offset] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    get y() {
+        return this._store[this._arrayName][this._offset + 1];
+    }
+
+    set y(value) {
+        this._store[this._arrayName][this._offset + 1] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    get z() {
+        return this._store[this._arrayName][this._offset + 2];
+    }
+
+    set z(value) {
+        this._store[this._arrayName][this._offset + 2] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    get w() {
+        return this._store[this._arrayName][this._offset + 3];
+    }
+
+    set w(value) {
+        this._store[this._arrayName][this._offset + 3] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    /**
+     * Sets the x, y, z and w components of the quaternion.
+     *
+     * @param {number} x - The x value.
+     * @param {number} y - The y value.
+     * @param {number} z - The z value.
+     * @param {number} w - The w value.
+     * @returns {QuatView} Self for chaining.
+     */
+    set(x, y, z, w) {
+        const arr = this._store[this._arrayName];
+        const o = this._offset;
+        arr[o] = x;
+        arr[o + 1] = y;
+        arr[o + 2] = z;
+        arr[o + 3] = w;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        return this;
+    }
+
+    /**
+     * Copies the contents of a source quaternion to this quaternion.
+     *
+     * @param {Quat} rhs - A quaternion to copy.
+     * @returns {QuatView} Self for chaining.
+     */
+    copy(rhs) {
+        const arr = this._store[this._arrayName];
+        const o = this._offset;
+        arr[o] = rhs.x;
+        arr[o + 1] = rhs.y;
+        arr[o + 2] = rhs.z;
+        arr[o + 3] = rhs.w;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        return this;
+    }
+
+    /**
+     * Returns a clone as a plain Quat (not backed by the store).
+     *
+     * @returns {Quat} A new Quat with the same component values.
+     */
+    clone() {
+        return new Quat(this.x, this.y, this.z, this.w);
+    }
+}
+
+export { QuatView, Vec3View };

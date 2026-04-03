@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Vec3 } from '../../src/core/math/vec3.js';
 import { Quat } from '../../src/core/math/quat.js';
 import { Mat4 } from '../../src/core/math/mat4.js';
-import { Vec3View } from '../../src/scene/view-classes.js';
+import { Vec3View, QuatView } from '../../src/scene/view-classes.js';
 
 describe('Vec3View', function () {
 
@@ -160,6 +160,160 @@ describe('Vec3View', function () {
         expect(v.z).to.equal(3);
 
         v.x = 100;
+        expect(store.localData[0]).to.equal(100);
+    });
+});
+
+describe('QuatView', function () {
+
+    let store;
+
+    beforeEach(function () {
+        store = {
+            localData: new Float32Array(20),
+            flags: new Uint16Array(2)
+        };
+    });
+
+    it('should be an instanceof Quat', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        expect(q).to.be.an.instanceof(Quat);
+    });
+
+    it('should read x/y/z/w from the store', function () {
+        store.localData[0] = 1;
+        store.localData[1] = 2;
+        store.localData[2] = 3;
+        store.localData[3] = 4;
+        const q = new QuatView(store, 'localData', 0, 0);
+        expect(q.x).to.equal(1);
+        expect(q.y).to.equal(2);
+        expect(q.z).to.equal(3);
+        expect(q.w).to.equal(4);
+    });
+
+    it('should write x/y/z/w to the store', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.x = 5;
+        q.y = 6;
+        q.z = 7;
+        q.w = 8;
+        expect(store.localData[0]).to.equal(5);
+        expect(store.localData[1]).to.equal(6);
+        expect(store.localData[2]).to.equal(7);
+        expect(store.localData[3]).to.equal(8);
+    });
+
+    it('should set dirty flags on write', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        expect(store.flags[0]).to.equal(0);
+        q.x = 1;
+        expect(store.flags[0] & 0x03).to.equal(0x03);
+
+        store.flags[0] = 0;
+        q.w = 1;
+        expect(store.flags[0] & 0x03).to.equal(0x03);
+    });
+
+    it('should set() all components and dirty once', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.set(0.1, 0.2, 0.3, 0.4);
+        expect(store.localData[0]).to.be.closeTo(0.1, 1e-6);
+        expect(store.localData[1]).to.be.closeTo(0.2, 1e-6);
+        expect(store.localData[2]).to.be.closeTo(0.3, 1e-6);
+        expect(store.localData[3]).to.be.closeTo(0.4, 1e-6);
+        expect(store.flags[0] & 0x03).to.equal(0x03);
+    });
+
+    it('should copy() from another quaternion', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        const src = new Quat(0.5, 0.5, 0.5, 0.5);
+        q.copy(src);
+        expect(store.localData[0]).to.equal(0.5);
+        expect(store.localData[1]).to.equal(0.5);
+        expect(store.localData[2]).to.equal(0.5);
+        expect(store.localData[3]).to.equal(0.5);
+        expect(store.flags[0] & 0x03).to.equal(0x03);
+    });
+
+    it('should clone() as a plain Quat', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.set(0.1, 0.2, 0.3, 0.4);
+        const c = q.clone();
+        expect(c).to.be.an.instanceof(Quat);
+        expect(c).to.not.be.an.instanceof(QuatView);
+        expect(c.x).to.be.closeTo(0.1, 1e-6);
+        expect(c.y).to.be.closeTo(0.2, 1e-6);
+        expect(c.z).to.be.closeTo(0.3, 1e-6);
+        expect(c.w).to.be.closeTo(0.4, 1e-6);
+    });
+
+    it('should support inherited setFromEulerAngles()', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.setFromEulerAngles(0, 90, 0);
+        // 90 degree rotation around Y: expect x=0, y~0.707, z=0, w~0.707
+        expect(q.x).to.be.closeTo(0, 1e-4);
+        expect(q.y).to.be.closeTo(0.7071, 1e-3);
+        expect(q.z).to.be.closeTo(0, 1e-4);
+        expect(q.w).to.be.closeTo(0.7071, 1e-3);
+        expect(store.flags[0] & 0x03).to.equal(0x03);
+    });
+
+    it('should support inherited mul()', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.set(0, 0, 0, 1); // identity
+        const r = new Quat();
+        r.setFromEulerAngles(0, 90, 0);
+        q.mul(r);
+        expect(q.y).to.be.closeTo(0.7071, 1e-3);
+        expect(q.w).to.be.closeTo(0.7071, 1e-3);
+    });
+
+    it('should support inherited slerp()', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        const a = new Quat(0, 0, 0, 1);
+        const b = new Quat();
+        b.setFromEulerAngles(0, 90, 0);
+        q.slerp(a, b, 0.5);
+        // halfway between identity and 90deg Y -> 45deg Y
+        expect(q.y).to.be.closeTo(Math.sin(Math.PI / 8), 1e-3);
+        expect(q.w).to.be.closeTo(Math.cos(Math.PI / 8), 1e-3);
+    });
+
+    it('should support inherited transformVector()', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.setFromEulerAngles(0, 90, 0);
+        const v = new Vec3(1, 0, 0);
+        const result = new Vec3();
+        q.transformVector(v, result);
+        // 90deg Y rotation transforms (1,0,0) -> (0,0,-1)
+        expect(result.x).to.be.closeTo(0, 1e-4);
+        expect(result.z).to.be.closeTo(-1, 1e-4);
+    });
+
+    it('should support inherited getEulerAngles()', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.setFromEulerAngles(10, 20, 30);
+        const euler = q.getEulerAngles();
+        expect(euler.x).to.be.closeTo(10, 0.1);
+        expect(euler.y).to.be.closeTo(20, 0.1);
+        expect(euler.z).to.be.closeTo(30, 0.1);
+    });
+
+    it('should survive store array replacement (indirect access)', function () {
+        const q = new QuatView(store, 'localData', 0, 0);
+        q.set(0.1, 0.2, 0.3, 0.4);
+
+        const newData = new Float32Array(40);
+        newData.set(store.localData);
+        store.localData = newData;
+
+        expect(q.x).to.be.closeTo(0.1, 1e-6);
+        expect(q.y).to.be.closeTo(0.2, 1e-6);
+        expect(q.z).to.be.closeTo(0.3, 1e-6);
+        expect(q.w).to.be.closeTo(0.4, 1e-6);
+
+        q.x = 100;
         expect(store.localData[0]).to.equal(100);
     });
 });
