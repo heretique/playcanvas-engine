@@ -1,0 +1,112 @@
+import { Vec3 } from '../core/math/vec3.js';
+
+const DIRTY_LOCAL_WORLD = 0x03; // DIRTY_LOCAL | DIRTY_WORLD
+
+/**
+ * A Vec3 subclass that reads/writes from a backing store's typed array. Every write sets dirty
+ * flags on the store, enabling change tracking for the transform system.
+ */
+class Vec3View extends Vec3 {
+    /** @private */
+    _store;
+
+    /** @private */
+    _arrayName;
+
+    /** @private */
+    _offset;
+
+    /** @private */
+    _slot;
+
+    /**
+     * @param {object} store - The backing store object containing typed arrays and flags.
+     * @param {string} arrayName - The property name of the typed array on the store.
+     * @param {number} offset - The starting index into the typed array.
+     * @param {number} slot - The slot index into the store's flags array.
+     */
+    constructor(store, arrayName, offset, slot) {
+        super();
+        // super() creates instance properties x, y, z that shadow our getters/setters.
+        // Delete them so the prototype accessors take effect.
+        delete this.x;
+        delete this.y;
+        delete this.z;
+        this._store = store;
+        this._arrayName = arrayName;
+        this._offset = offset;
+        this._slot = slot;
+    }
+
+    get x() {
+        return this._store[this._arrayName][this._offset];
+    }
+
+    set x(value) {
+        this._store[this._arrayName][this._offset] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    get y() {
+        return this._store[this._arrayName][this._offset + 1];
+    }
+
+    set y(value) {
+        this._store[this._arrayName][this._offset + 1] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    get z() {
+        return this._store[this._arrayName][this._offset + 2];
+    }
+
+    set z(value) {
+        this._store[this._arrayName][this._offset + 2] = value;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+    }
+
+    /**
+     * Sets the x, y and z components of the vector.
+     *
+     * @param {number} x - The x value.
+     * @param {number} y - The y value.
+     * @param {number} z - The z value.
+     * @returns {Vec3View} Self for chaining.
+     */
+    set(x, y, z) {
+        const arr = this._store[this._arrayName];
+        const o = this._offset;
+        arr[o] = x;
+        arr[o + 1] = y;
+        arr[o + 2] = z;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        return this;
+    }
+
+    /**
+     * Copies the contents of a source vector to this vector.
+     *
+     * @param {Vec3} rhs - A vector to copy.
+     * @returns {Vec3View} Self for chaining.
+     */
+    copy(rhs) {
+        const arr = this._store[this._arrayName];
+        const o = this._offset;
+        arr[o] = rhs.x;
+        arr[o + 1] = rhs.y;
+        arr[o + 2] = rhs.z;
+        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        return this;
+    }
+
+    /**
+     * Returns a clone as a plain Vec3 (not backed by the store).
+     *
+     * @returns {Vec3} A new Vec3 with the same component values.
+     */
+    clone() {
+        return new Vec3(this.x, this.y, this.z);
+    }
+}
+
+export { Vec3View };
