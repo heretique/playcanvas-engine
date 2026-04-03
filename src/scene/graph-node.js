@@ -35,10 +35,6 @@ const target = new Vec3();
 const up = new Vec3();
 
 // Module-scope scratch objects for read-only return values.
-// API docs state these are read-only; callers must not hold references.
-const _worldPos = new Vec3();
-const _worldRot = new Quat();
-const _worldEuler = new Vec3();
 const _worldScale = new Vec3();
 const _localEuler = new Vec3();
 
@@ -253,6 +249,21 @@ class GraphNode extends EventHandler {
    * @ignore
    */
   scaleCompensation = false;
+
+  /**
+   * Per-node scratch objects for world-space getters. These must be per-node
+   * (not module-scope shared) because callers may read positions/rotations from
+   * two different nodes in the same expression (e.g. drawLine(a.getPosition(), b.getPosition())).
+   *
+   * @private
+   */
+  position = new Vec3();
+
+  /** @private */
+  rotation = new Quat();
+
+  /** @private */
+  eulerAngles = new Vec3();
 
   /**
    * SoA transform store slot index for this node.
@@ -523,6 +534,10 @@ static findNode(node, test) {
 
     clone.localTransform.copy(this.localTransform);
     clone.worldTransform.copy(this.worldTransform);
+
+    clone.position.copy(this.position);
+    clone.rotation.copy(this.rotation);
+    clone.eulerAngles.copy(this.eulerAngles);
 
     // Copy store flags from source
     transformStore.flags[clone._slot] = transformStore.flags[this._slot];
@@ -821,8 +836,8 @@ static findNode(node, test) {
    * this.entity.setEulerAngles(angles);
    */
   getEulerAngles() {
-    this.getWorldTransform().getEulerAngles(_worldEuler);
-    return _worldEuler;
+    this.getWorldTransform().getEulerAngles(this.eulerAngles);
+    return this.eulerAngles;
   }
 
   /**
@@ -918,8 +933,8 @@ static findNode(node, test) {
    * this.entity.setPosition(position);
    */
   getPosition() {
-    this.getWorldTransform().getTranslation(_worldPos);
-    return _worldPos;
+    this.getWorldTransform().getTranslation(this.position);
+    return this.position;
   }
 
   /**
@@ -932,8 +947,8 @@ static findNode(node, test) {
    * const rotation = this.entity.getRotation();
    */
   getRotation() {
-    _worldRot.setFromMat4(this.getWorldTransform());
-    return _worldRot;
+    this.rotation.setFromMat4(this.getWorldTransform());
+    return this.rotation;
   }
 
   /**
@@ -1913,14 +1928,12 @@ static findNode(node, test) {
     if (this._parent === null) {
       this.localRotation.mul2(rotation, this.localRotation);
     } else {
-      // Copy world rotation before calling parent.getRotation(),
-      // because both return the same shared _worldRot scratch object.
-      tmpQuat.copy(this.getRotation());
+      const rot = this.getRotation();
       const parentRot = this._parent.getRotation();
 
       invParentRot.copy(parentRot).invert();
       rotation.mul2(invParentRot, rotation);
-      this.localRotation.mul2(rotation, tmpQuat);
+      this.localRotation.mul2(rotation, rot);
     }
 
     if (this._frozen) {
