@@ -173,7 +173,7 @@ class AnimComponentBinder extends DefaultAnimBinder {
         const prop = obj[key];
 
         // if the target property has a copy function, use it (vec3, color, quat)
-        if (typeof prop === 'object' && prop.hasOwnProperty('copy')) {
+        if (typeof prop === 'object' && typeof prop.copy === 'function') {
             return function (values) {
                 prop.copy(packFunc(values));
             };
@@ -228,34 +228,30 @@ class AnimComponentBinder extends DefaultAnimBinder {
             animDataType = 'vector';
             animDataComponents = 1;
         } else if (typeof property === 'object') {
-            switch (property.constructor) {
-                case Vec2:
-                    setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packVec2);
-                    animDataType = 'vector';
-                    animDataComponents = 2;
-                    break;
-                case Vec3:
-                    setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packVec3);
-                    animDataType = 'vector';
-                    animDataComponents = 3;
-                    break;
-                case Vec4:
-                    setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packVec4);
-                    animDataType = 'vector';
-                    animDataComponents = 4;
-                    break;
-                case Color:
-                    setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packColor);
-                    animDataType = 'vector';
-                    animDataComponents = 4;
-                    break;
-                case Quat:
-                    setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packQuat);
-                    animDataType = 'quaternion';
-                    animDataComponents = 4;
-                    break;
-                default:
-                    return null;
+            // Use instanceof instead of constructor comparison to support
+            // subclasses (e.g. Vec3View extends Vec3, QuatView extends Quat).
+            if (property instanceof Quat) {
+                setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packQuat);
+                animDataType = 'quaternion';
+                animDataComponents = 4;
+            } else if (property instanceof Vec4) {
+                setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packVec4);
+                animDataType = 'vector';
+                animDataComponents = 4;
+            } else if (property instanceof Vec3) {
+                setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packVec3);
+                animDataType = 'vector';
+                animDataComponents = 3;
+            } else if (property instanceof Vec2) {
+                setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packVec2);
+                animDataType = 'vector';
+                animDataComponents = 2;
+            } else if (property instanceof Color) {
+                setter = this._setter(propertyComponent, propertyHierarchy, AnimComponentBinder._packColor);
+                animDataType = 'vector';
+                animDataComponents = 4;
+            } else {
+                return null;
             }
         }
 
