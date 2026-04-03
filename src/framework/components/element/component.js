@@ -2064,7 +2064,7 @@ class ElementComponent extends Component {
             return;
         }
 
-        if (x instanceof Vec3) {
+        if (typeof x === 'object') {
             position.copy(x);
         } else {
             position.set(x, y, z);
@@ -2088,7 +2088,7 @@ class ElementComponent extends Component {
      * @private
      */
     _setLocalPosition(x, y, z) {
-        if (x instanceof Vec3) {
+        if (typeof x === 'object') {
             this.localPosition.copy(x);
         } else {
             this.localPosition.set(x, y, z);
