@@ -153,6 +153,7 @@ export { WorldClusters } from './scene/lighting/world-clusters.js';
 export { ForwardRenderer } from './scene/renderer/forward-renderer.js';
 export { GraphNode } from './scene/graph-node.js';
 export { TransformStore, transformStore } from './scene/transform-store.js';
+export { Vec3View, QuatView, Mat4View } from './scene/view-classes.js';
 export { Layer } from './scene/layer.js';
 export { LayerComposition } from './scene/composition/layer-composition.js';
 export { Light } from './scene/light.js';

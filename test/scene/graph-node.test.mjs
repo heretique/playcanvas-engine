@@ -451,6 +451,7 @@ describe('GraphNode', function () {
         it('returns the default local scale of a node', function () {
             const node = new GraphNode();
             const scale = node.getLocalScale();
+            expect(scale).to.be.an.instanceof(Vec3);
             expect(scale.x).to.equal(1);
             expect(scale.y).to.equal(1);
             expect(scale.z).to.equal(1);
@@ -460,6 +461,7 @@ describe('GraphNode', function () {
             const node = new GraphNode();
             node.setLocalScale(2, 3, 4);
             const scale = node.getLocalScale();
+            expect(scale).to.be.an.instanceof(Vec3);
             expect(scale.x).to.equal(2);
             expect(scale.y).to.equal(3);
             expect(scale.z).to.equal(4);
@@ -472,6 +474,7 @@ describe('GraphNode', function () {
         it('returns an identity matrix for a newly created node', function () {
             const node = new GraphNode();
             const transform = node.getLocalTransform();
+            expect(transform).to.be.an.instanceof(Mat4);
             expect(transform.equals(Mat4.IDENTITY)).to.be.true;
         });
 
@@ -480,6 +483,7 @@ describe('GraphNode', function () {
             node.setLocalPosition(1, 2, 3);
             node.setLocalScale(4, 5, 6);
             const transform = node.getLocalTransform();
+            expect(transform).to.be.an.instanceof(Mat4);
             const expected = new Float32Array([4, 0, 0, 0, 0, 5, 0, 0, 0, 0, 6, 0, 1, 2, 3, 1]);
             expect(transform.data).to.deep.equal(expected);
         });
@@ -491,6 +495,7 @@ describe('GraphNode', function () {
         it('returns an identity matrix for a newly created node', function () {
             const node = new GraphNode();
             const transform = node.getWorldTransform();
+            expect(transform).to.be.an.instanceof(Mat4);
             expect(transform.equals(Mat4.IDENTITY)).to.be.true;
         });
 
@@ -499,6 +504,7 @@ describe('GraphNode', function () {
             node.setLocalPosition(1, 2, 3);
             node.setLocalScale(4, 5, 6);
             const transform = node.getWorldTransform();
+            expect(transform).to.be.an.instanceof(Mat4);
             const expected = new Float32Array([4, 0, 0, 0, 0, 5, 0, 0, 0, 0, 6, 0, 1, 2, 3, 1]);
             expect(transform.data).to.deep.equal(expected);
         });
@@ -524,6 +530,7 @@ describe('GraphNode', function () {
             m2.copy(m1);
             m1.mul(m2);
 
+            expect(transform).to.be.an.instanceof(Mat4);
             expect(transform.data).to.deep.equal(m1.data);
         });
 
