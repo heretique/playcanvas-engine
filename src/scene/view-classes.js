@@ -1,3 +1,4 @@
+import { Mat4 } from '../core/math/mat4.js';
 import { Quat } from '../core/math/quat.js';
 import { Vec3 } from '../core/math/vec3.js';
 
@@ -230,4 +231,48 @@ class QuatView extends Quat {
     }
 }
 
-export { QuatView, Vec3View };
+/**
+ * A Mat4 subclass whose `.data` is a subarray view into a backing store's typed array. Unlike
+ * Vec3View/QuatView, Mat4View does NOT set dirty flags on writes because world/local matrices are
+ * computed outputs, not user inputs.
+ */
+class Mat4View extends Mat4 {
+    /** @private */
+    _store;
+
+    /** @private */
+    _arrayName;
+
+    /** @private */
+    _offset;
+
+    /**
+     * @param {object} store - The backing store object containing typed arrays.
+     * @param {string} arrayName - The property name of the typed array on the store.
+     * @param {number} offset - The starting index into the typed array.
+     */
+    constructor(store, arrayName, offset) {
+        super();
+        this._store = store;
+        this._arrayName = arrayName;
+        this._offset = offset;
+        this.data = store[arrayName].subarray(offset, offset + 16);
+    }
+
+    /**
+     * Rebinds this view to a (possibly new) store array after store growth. Since subarrays hold a
+     * reference to the original typed array, this must be called when the store replaces its array.
+     *
+     * @param {object} store - The backing store object.
+     * @param {string} arrayName - The property name of the typed array on the store.
+     * @param {number} offset - The starting index into the typed array.
+     */
+    _rebind(store, arrayName, offset) {
+        this._store = store;
+        this._arrayName = arrayName;
+        this._offset = offset;
+        this.data = store[arrayName].subarray(offset, offset + 16);
+    }
+}
+
+export { Mat4View, QuatView, Vec3View };

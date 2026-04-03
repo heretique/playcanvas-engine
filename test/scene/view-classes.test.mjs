@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Vec3 } from '../../src/core/math/vec3.js';
 import { Quat } from '../../src/core/math/quat.js';
 import { Mat4 } from '../../src/core/math/mat4.js';
-import { Vec3View, QuatView } from '../../src/scene/view-classes.js';
+import { Vec3View, QuatView, Mat4View } from '../../src/scene/view-classes.js';
 
 describe('Vec3View', function () {
 
@@ -315,5 +315,193 @@ describe('QuatView', function () {
 
         q.x = 100;
         expect(store.localData[0]).to.equal(100);
+    });
+});
+
+describe('Mat4View', function () {
+
+    let store;
+
+    beforeEach(function () {
+        store = {
+            worldData: new Float32Array(32),
+            flags: new Uint16Array(2)
+        };
+    });
+
+    it('should be an instanceof Mat4', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        expect(m).to.be.an.instanceof(Mat4);
+    });
+
+    it('should have .data as a subarray view into the store', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        m.data[0] = 99;
+        expect(store.worldData[0]).to.equal(99);
+        store.worldData[5] = 42;
+        expect(m.data[5]).to.equal(42);
+    });
+
+    it('should not set dirty flags on writes', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        m.data[0] = 123;
+        expect(store.flags[0]).to.equal(0);
+    });
+
+    it('should support setIdentity()', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        // Scramble first
+        for (let i = 0; i < 16; i++) m.data[i] = i + 1;
+        m.setIdentity();
+        const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        for (let i = 0; i < 16; i++) {
+            expect(m.data[i]).to.equal(identity[i]);
+        }
+    });
+
+    it('should support copy() from another Mat4', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        const src = new Mat4();
+        src.data.set([2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 5, 6, 7, 1]);
+        m.copy(src);
+        for (let i = 0; i < 16; i++) {
+            expect(m.data[i]).to.equal(src.data[i]);
+        }
+        // Verify it wrote to the store
+        expect(store.worldData[12]).to.equal(5);
+    });
+
+    it('should support setTRS() with translation, rotation, scale', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        const t = new Vec3(10, 20, 30);
+        const r = new Quat(0, 0, 0, 1); // identity rotation
+        const s = new Vec3(2, 3, 4);
+        m.setTRS(t, r, s);
+        // Translation in column 3
+        expect(m.data[12]).to.equal(10);
+        expect(m.data[13]).to.equal(20);
+        expect(m.data[14]).to.equal(30);
+        // Scale on diagonal
+        expect(m.data[0]).to.be.closeTo(2, 1e-5);
+        expect(m.data[5]).to.be.closeTo(3, 1e-5);
+        expect(m.data[10]).to.be.closeTo(4, 1e-5);
+    });
+
+    it('should support mul2()', function () {
+        const a = new Mat4();
+        const b = new Mat4();
+        // Set a as a translation matrix
+        a.data[12] = 5;
+        a.data[13] = 6;
+        a.data[14] = 7;
+        // Set b as identity (already is)
+        const m = new Mat4View(store, 'worldData', 0);
+        m.mul2(a, b);
+        expect(m.data[12]).to.equal(5);
+        expect(m.data[13]).to.equal(6);
+        expect(m.data[14]).to.equal(7);
+    });
+
+    it('should support invert()', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        // Set up a simple translation matrix
+        m.setIdentity();
+        m.data[12] = 10;
+        m.data[13] = 20;
+        m.data[14] = 30;
+        m.invert();
+        expect(m.data[12]).to.be.closeTo(-10, 1e-5);
+        expect(m.data[13]).to.be.closeTo(-20, 1e-5);
+        expect(m.data[14]).to.be.closeTo(-30, 1e-5);
+    });
+
+    it('should support getTranslation()', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        m.data[12] = 100;
+        m.data[13] = 200;
+        m.data[14] = 300;
+        const t = m.getTranslation();
+        expect(t.x).to.equal(100);
+        expect(t.y).to.equal(200);
+        expect(t.z).to.equal(300);
+    });
+
+    it('should support getScale()', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        const t = new Vec3(0, 0, 0);
+        const r = new Quat(0, 0, 0, 1);
+        const s = new Vec3(2, 3, 4);
+        m.setTRS(t, r, s);
+        const result = m.getScale();
+        expect(result.x).to.be.closeTo(2, 1e-5);
+        expect(result.y).to.be.closeTo(3, 1e-5);
+        expect(result.z).to.be.closeTo(4, 1e-5);
+    });
+
+    it('should support transformPoint()', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        // Translation matrix: translate by (10, 20, 30)
+        m.setIdentity();
+        m.data[12] = 10;
+        m.data[13] = 20;
+        m.data[14] = 30;
+        const p = new Vec3(1, 2, 3);
+        const result = new Vec3();
+        m.transformPoint(p, result);
+        expect(result.x).to.equal(11);
+        expect(result.y).to.equal(22);
+        expect(result.z).to.equal(33);
+    });
+
+    it('should support transformVector()', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        // Translation matrix should not affect vectors
+        m.setIdentity();
+        m.data[12] = 10;
+        m.data[13] = 20;
+        m.data[14] = 30;
+        const v = new Vec3(1, 2, 3);
+        const result = new Vec3();
+        m.transformVector(v, result);
+        expect(result.x).to.equal(1);
+        expect(result.y).to.equal(2);
+        expect(result.z).to.equal(3);
+    });
+
+    it('should reflect external store writes through .data', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        store.worldData[0] = 77;
+        store.worldData[15] = 88;
+        expect(m.data[0]).to.equal(77);
+        expect(m.data[15]).to.equal(88);
+    });
+
+    it('should support _rebind() after store array replacement', function () {
+        const m = new Mat4View(store, 'worldData', 0);
+        m.data[12] = 42;
+
+        // Simulate store growth: create new, larger array and copy data
+        const newData = new Float32Array(64);
+        newData.set(store.worldData);
+        store.worldData = newData;
+
+        // Before rebind, .data still points to old buffer
+        m._rebind(store, 'worldData', 0);
+
+        expect(m.data[12]).to.equal(42);
+        // Writes go to new store
+        m.data[0] = 999;
+        expect(store.worldData[0]).to.equal(999);
+    });
+
+    it('should work with an offset into the store', function () {
+        const m = new Mat4View(store, 'worldData', 16);
+        m.setIdentity();
+        expect(store.worldData[16]).to.equal(1);
+        expect(store.worldData[21]).to.equal(1);
+        expect(store.worldData[26]).to.equal(1);
+        expect(store.worldData[31]).to.equal(1);
+        // First 16 elements should be untouched (zeros)
+        expect(store.worldData[0]).to.equal(0);
     });
 });
