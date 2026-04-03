@@ -7,8 +7,8 @@ import { MeshInstance } from '../mesh-instance.js';
 import { GraphNode } from '../graph-node.js';
 
 const identityGraphNode = new GraphNode();
-identityGraphNode.worldTransform = Mat4.IDENTITY;
-identityGraphNode._dirtyWorld = identityGraphNode._dirtyNormal = false;
+identityGraphNode.worldTransform.copy(Mat4.IDENTITY);
+identityGraphNode._dirtyNormal = false;
 
 // helper class storing data for a single batch of line rendering using a single material
 class ImmediateBatch {

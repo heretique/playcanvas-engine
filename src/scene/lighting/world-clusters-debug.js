@@ -177,8 +177,8 @@ class WorldClustersDebug {
                 material.update();
 
                 const node = new GraphNode('WorldClustersDebug');
-                node.worldTransform = Mat4.IDENTITY;
-                node._dirtyWorld = node._dirtyNormal = false;
+                node.worldTransform.copy(Mat4.IDENTITY);
+                node._dirtyNormal = false;
 
                 WorldClustersDebug.meshInstance = new MeshInstance(mesh, material, node);
                 WorldClustersDebug.meshInstance.cull = false;

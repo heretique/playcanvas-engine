@@ -69,7 +69,7 @@ class TransformStore {
     count = 0;
 
     /** @type {number} */
-    currentFrame = 0;
+    currentFrame = 1;
 
     /** @type {Float32Array} */
     localData;

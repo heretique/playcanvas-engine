@@ -14,8 +14,9 @@ import {
   SCALE_COMP,
   DIRTY_LOCAL,
   DIRTY_WORLD,
+  CUSTOM_SYNC,
 } from "./transform-store.js";
-import { Vec3Proxy, QuatProxy, Mat4Proxy } from "./math-proxy.js";
+import { Vec3View, QuatView, Mat4View } from "./view-classes.js";
 
 const scaleCompensatePosTransform = new Mat4();
 const scaleCompensatePos = new Vec3();
@@ -119,38 +120,32 @@ class GraphNode extends EventHandler {
    */
   tags = new Tags(this);
 
-  // Local space properties — proxy views into transformStore.localData
+  // Local space properties — view classes into transformStore.localData
   /**
-   * @type {Vec3Proxy}
+   * @type {Vec3View}
    * @private
    */
   localPosition;
 
   /**
-   * @type {QuatProxy}
+   * @type {QuatView}
    * @private
    */
   localRotation;
 
   /**
-   * @type {Vec3Proxy}
+   * @type {Vec3View}
    * @private
    */
   localScale;
 
   /**
-   * Local transform matrix — proxy view into transformStore.localMatData.
+   * Local transform matrix — view into transformStore.localMatData.
    *
-   * @type {Mat4Proxy}
+   * @type {Mat4View}
    * @private
    */
   localTransform;
-
-  /**
-   * @type {boolean}
-   * @private
-   */
-  _dirtyLocal = false;
 
   /**
    * @type {number}
@@ -169,18 +164,12 @@ class GraphNode extends EventHandler {
   _frozen = false;
 
   /**
-   * World transform matrix — proxy view into transformStore.worldData.
+   * World transform matrix — view into transformStore.worldData.
    *
-   * @type {Mat4Proxy}
+   * @type {Mat4View}
    * @private
    */
   worldTransform;
-
-  /**
-   * @type {boolean}
-   * @private
-   */
-  _dirtyWorld = false;
 
   /**
    * Cached value representing the negatively scaled world transform. If the value is 0, this
@@ -313,15 +302,15 @@ static findNode(node, test) {
     transformStore.nodeRefs[this._slot] = this;
 
     const lo = this._slot * LOCAL_STRIDE;
-    this.localPosition = new Vec3Proxy(transformStore.localData, lo);
-    this.localRotation = new QuatProxy(transformStore.localData, lo + 3);
-    this.localScale = new Vec3Proxy(transformStore.localData, lo + 7);
+    this.localPosition = new Vec3View(transformStore, 'localData', lo, this._slot);
+    this.localRotation = new QuatView(transformStore, 'localData', lo + 3, this._slot);
+    this.localScale = new Vec3View(transformStore, 'localData', lo + 7, this._slot);
 
-    // Mat4 proxies — zero-copy views into the store
+    // Mat4 views — zero-copy views into the store
     const wo = this._slot * WORLD_STRIDE;
-    this.localTransform = new Mat4Proxy(transformStore.localMatData, wo);
+    this.localTransform = new Mat4View(transformStore, 'localMatData', wo);
     this.localTransform.setIdentity();
-    this.worldTransform = new Mat4Proxy(transformStore.worldData, wo);
+    this.worldTransform = new Mat4View(transformStore, 'worldData', wo);
     this.worldTransform.setIdentity();
   }
 
@@ -331,16 +320,10 @@ static findNode(node, test) {
    * @private
    */
   _rebindProxies() {
-    const lo = this._slot * LOCAL_STRIDE;
-    this.localPosition._rebind(transformStore.localData, lo);
-    this.localRotation._rebind(transformStore.localData, lo + 3);
-    this.localScale._rebind(transformStore.localData, lo + 7);
-
     const wo = this._slot * WORLD_STRIDE;
-    this.localTransform._rebind(transformStore.localMatData, wo);
-    // worldTransform may have been replaced by direct assignment (immediate-mode rendering)
+    this.localTransform._rebind(transformStore, 'localMatData', wo);
     if (this.worldTransform && this.worldTransform._rebind) {
-      this.worldTransform._rebind(transformStore.worldData, wo);
+      this.worldTransform._rebind(transformStore, 'worldData', wo);
     }
   }
 
@@ -539,10 +522,11 @@ static findNode(node, test) {
     clone.localScale.copy(this.localScale);
 
     clone.localTransform.copy(this.localTransform);
-    clone._dirtyLocal = this._dirtyLocal;
-
     clone.worldTransform.copy(this.worldTransform);
-    clone._dirtyWorld = this._dirtyWorld;
+
+    // Copy store flags from source
+    transformStore.flags[clone._slot] = transformStore.flags[this._slot];
+
     clone._dirtyNormal = this._dirtyNormal;
     clone._aabbVer = this._aabbVer + 1;
 
@@ -553,11 +537,7 @@ static findNode(node, test) {
     // false as this node is not in the hierarchy yet
     clone._enabledInHierarchy = false;
 
-    // Register clone in nodeRefs
     transformStore.nodeRefs[clone._slot] = clone;
-    if (clone.scaleCompensation) {
-      transformStore.flags[clone._slot] |= SCALE_COMP;
-    }
   }
 
   /**
@@ -915,13 +895,13 @@ static findNode(node, test) {
    * const transform = this.entity.getLocalTransform();
    */
   getLocalTransform() {
-    if (this._dirtyLocal) {
+    if (transformStore.flags[this._slot] & DIRTY_LOCAL) {
       this.localTransform.setTRS(
         this.localPosition,
         this.localRotation,
         this.localScale,
       );
-      this._dirtyLocal = false;
+      transformStore.flags[this._slot] &= ~DIRTY_LOCAL;
     }
     return this.localTransform;
   }
@@ -981,18 +961,14 @@ static findNode(node, test) {
    * const transform = this.entity.getWorldTransform();
    */
   getWorldTransform() {
-    if (!this._dirtyLocal && !this._dirtyWorld) {
+    const slot = this._slot;
+    const flags = transformStore.flags[slot];
+
+    if (!(flags & (DIRTY_LOCAL | DIRTY_WORLD))) {
       return this.worldTransform;
     }
 
-    // If batch propagation already computed this node's world transform
-    // this frame, just clear JS flags and return — no work needed.
-    if (
-      transformStore.lastWorldUpdate[this._slot] === transformStore.currentFrame
-    ) {
-      this._dirtyLocal = false;
-      this._dirtyWorld = false;
-      this._frozen = true;
+    if (transformStore.lastWorldUpdate[slot] === transformStore.currentFrame) {
       return this.worldTransform;
     }
 
@@ -1075,11 +1051,13 @@ static findNode(node, test) {
    */
   setLocalEulerAngles(x, y, z) {
     this.localRotation.setFromEulerAngles(x, y, z);
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1114,12 +1092,13 @@ static findNode(node, test) {
     } else {
       this.localPosition.set(x, y, z);
     }
-    // Proxy writes directly to store; just mark dirty flags
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1156,11 +1135,13 @@ static findNode(node, test) {
     } else {
       this.localRotation.set(x, y, z, w);
     }
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1195,21 +1176,13 @@ static findNode(node, test) {
     } else {
       this.localScale.set(x, y, z);
     }
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
-  }
-
-  /** @private */
-  _dirtifyLocal() {
-    if (!this._dirtyLocal) {
-      this._dirtyLocal = true;
-      if (!this._dirtyWorld) {
-        this._dirtifyWorld();
-      }
-    }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /** @private */
@@ -1221,27 +1194,71 @@ static findNode(node, test) {
     }
   }
 
-  /** @private */
-  _dirtifyWorld() {
-    if (!this._dirtyWorld) {
-      this._unfreezeParentToRoot();
-    }
-    this._dirtifyWorldInternal();
+  /**
+   * Compatibility getter — reads DIRTY_LOCAL from the store flags.
+   *
+   * @type {boolean}
+   * @private
+   */
+  get _dirtyLocal() {
+    return !!(transformStore.flags[this._slot] & DIRTY_LOCAL);
   }
 
-  /** @private */
-  _dirtifyWorldInternal() {
-    if (!this._dirtyWorld) {
-      this._frozen = false;
-      this._dirtyWorld = true;
-      for (let i = 0; i < this._children.length; i++) {
-        if (!this._children[i]._dirtyWorld) {
-          this._children[i]._dirtifyWorldInternal();
-        }
-      }
+  set _dirtyLocal(value) {
+    if (value) {
+      transformStore.flags[this._slot] |= DIRTY_LOCAL;
+    } else {
+      transformStore.flags[this._slot] &= ~DIRTY_LOCAL;
     }
+  }
+
+  /**
+   * Compatibility getter — reads DIRTY_WORLD from the store flags.
+   *
+   * @type {boolean}
+   * @private
+   */
+  get _dirtyWorld() {
+    return !!(transformStore.flags[this._slot] & DIRTY_WORLD);
+  }
+
+  set _dirtyWorld(value) {
+    if (value) {
+      transformStore.flags[this._slot] |= DIRTY_WORLD;
+    } else {
+      transformStore.flags[this._slot] &= ~DIRTY_WORLD;
+    }
+  }
+
+  /**
+   * Compatibility method — marks local and world dirty in the store and unfreezes.
+   *
+   * @private
+   */
+  _dirtifyLocal() {
+    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
+    }
+    this._frozen = false;
     this._dirtyNormal = true;
-    this._worldScaleSign = 0; // world matrix is dirty, mark this flag dirty too
+    this._worldScaleSign = 0;
+    this._aabbVer++;
+  }
+
+  /**
+   * Compatibility method — marks world dirty in the store and unfreezes.
+   *
+   * @private
+   */
+  _dirtifyWorld() {
+    transformStore.flags[this._slot] |= DIRTY_WORLD;
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
+    }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
     this._aabbVer++;
   }
 
@@ -1284,11 +1301,13 @@ static findNode(node, test) {
       invParentWtm.copy(this._parent.getWorldTransform()).invert();
       invParentWtm.transformPoint(position, this.localPosition);
     }
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1333,11 +1352,13 @@ static findNode(node, test) {
       invParentRot.copy(parentRot).invert();
       this.localRotation.copy(invParentRot).mul(rotation);
     }
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1361,11 +1382,13 @@ static findNode(node, test) {
       invParentWtm.transformPoint(position, this.localPosition);
       this.localRotation.setFromMat4(invParentWtm).mul(rotation);
     }
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1404,11 +1427,13 @@ static findNode(node, test) {
       invParentRot.copy(parentRot).invert();
       this.localRotation.mul2(invParentRot, this.localRotation);
     }
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1533,7 +1558,7 @@ static findNode(node, test) {
     node._updateGraphDepth();
 
     // The child (plus subhierarchy) will need world transforms to be recalculated
-    node._dirtifyWorld();
+    transformStore.flags[node._slot] |= DIRTY_WORLD;
     // node might be already marked as dirty, in that case the whole chain stays frozen, so let's enforce unfreeze
     if (this._frozen) {
       node._unfreezeParentToRoot();
@@ -1597,17 +1622,16 @@ static findNode(node, test) {
   }
 
   _sync() {
-    if (this._dirtyLocal) {
+    const slot = this._slot;
+    if (transformStore.flags[slot] & DIRTY_LOCAL) {
       this.localTransform.setTRS(
         this.localPosition,
         this.localRotation,
         this.localScale,
       );
-
-      this._dirtyLocal = false;
     }
 
-    if (this._dirtyWorld) {
+    if (transformStore.flags[slot] & (DIRTY_LOCAL | DIRTY_WORLD)) {
       if (this._parent === null) {
         this.worldTransform.copy(this.localTransform);
       } else {
@@ -1670,7 +1694,7 @@ static findNode(node, test) {
         }
       }
 
-      this._dirtyWorld = false;
+      transformStore.flags[slot] &= ~(DIRTY_LOCAL | DIRTY_WORLD);
     }
   }
 
@@ -1684,30 +1708,26 @@ static findNode(node, test) {
       return;
     }
 
-    // Phase 1: Batch propagation — single flat loop over topological order.
-    // Store flags are already set by setters (proxies write directly to store).
     transformStore.propagate();
 
-    // Phase 2: Post-propagate — flat loop over updated slots only.
-    // Clears JS dirty flags and calls custom _sync() overrides (element components).
-    // No recursive tree walk — O(updated) instead of O(total).
     const updated = transformStore._updatedSlots;
     const count = transformStore._updatedCount;
     const nodeRefs = transformStore.nodeRefs;
-    const syncProto = GraphNode.prototype._sync;
+    const storeFlags = transformStore.flags;
 
     for (let i = 0; i < count; i++) {
-      const node = nodeRefs[updated[i]];
+      const slot = updated[i];
+      const node = nodeRefs[slot];
       if (!node) continue;
 
-      if (node._sync !== syncProto) {
-        // Custom _sync override (element component, etc.) —
-        // let it build localTransform and compute worldTransform its own way.
+      if (storeFlags[slot] & CUSTOM_SYNC) {
+        // CUSTOM_SYNC — let the node compute its own world matrix
         node._sync();
       }
-      node._dirtyLocal = false;
-      node._dirtyWorld = false;
+
       node._frozen = true;
+      node._dirtyNormal = true;
+      node._worldScaleSign = 0;
     }
   }
 
@@ -1850,11 +1870,13 @@ static findNode(node, test) {
 
     this.localRotation.transformVector(position, position);
     this.localPosition.add(position);
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1899,11 +1921,13 @@ static findNode(node, test) {
       this.localRotation.mul2(rotation, rot);
     }
 
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 
   /**
@@ -1939,11 +1963,13 @@ static findNode(node, test) {
 
     this.localRotation.mul(rotation);
 
-    transformStore.flags[this._slot] |= DIRTY_LOCAL | DIRTY_WORLD;
-
-    if (!this._dirtyLocal) {
-      this._dirtifyLocal();
+    if (this._frozen) {
+      this._unfreezeParentToRoot();
     }
+    this._frozen = false;
+    this._dirtyNormal = true;
+    this._worldScaleSign = 0;
+    this._aabbVer++;
   }
 }
 
