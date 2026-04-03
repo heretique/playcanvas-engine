@@ -45,8 +45,10 @@ class Vec3View extends Vec3 {
     }
 
     set x(value) {
-        this._store[this._arrayName][this._offset] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return; // guard: called during super() before fields are set
+        store[this._arrayName][this._offset] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     get y() {
@@ -54,8 +56,10 @@ class Vec3View extends Vec3 {
     }
 
     set y(value) {
-        this._store[this._arrayName][this._offset + 1] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return;
+        store[this._arrayName][this._offset + 1] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     get z() {
@@ -63,8 +67,10 @@ class Vec3View extends Vec3 {
     }
 
     set z(value) {
-        this._store[this._arrayName][this._offset + 2] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return;
+        store[this._arrayName][this._offset + 2] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     /**
@@ -153,8 +159,10 @@ class QuatView extends Quat {
     }
 
     set x(value) {
-        this._store[this._arrayName][this._offset] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return; // guard: called during super() before fields are set
+        store[this._arrayName][this._offset] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     get y() {
@@ -162,8 +170,10 @@ class QuatView extends Quat {
     }
 
     set y(value) {
-        this._store[this._arrayName][this._offset + 1] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return;
+        store[this._arrayName][this._offset + 1] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     get z() {
@@ -171,8 +181,10 @@ class QuatView extends Quat {
     }
 
     set z(value) {
-        this._store[this._arrayName][this._offset + 2] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return;
+        store[this._arrayName][this._offset + 2] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     get w() {
@@ -180,8 +192,10 @@ class QuatView extends Quat {
     }
 
     set w(value) {
-        this._store[this._arrayName][this._offset + 3] = value;
-        this._store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
+        const store = this._store;
+        if (!store) return;
+        store[this._arrayName][this._offset + 3] = value;
+        store.flags[this._slot] |= DIRTY_LOCAL_WORLD;
     }
 
     /**
