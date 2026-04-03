@@ -25,6 +25,7 @@ const DIRTY_LOCAL = 0x01;
 const DIRTY_WORLD = 0x02;
 const SCALE_COMP  = 0x04;
 const ENABLED     = 0x08;
+const CUSTOM_SYNC = 0x10;
 
 // Pre-allocated scratch space (module scope, reused, zero GC)
 const _tempLocal = new Float32Array(16);
@@ -331,6 +332,15 @@ class TransformStore {
             const wo = slot * WORLD_STRIDE;
             setTRSFromArray(localData, lo, _tempLocal, 0);
 
+            if (flags[slot] & CUSTOM_SYNC) {
+                // Custom sync nodes compute their own world matrix in Phase 2.
+                // Just record them as updated so Phase 2 knows to call _sync().
+                lastUpdate[slot] = frame;
+                flags[slot] &= ~(DIRTY_LOCAL | DIRTY_WORLD);
+                updated[updatedCount++] = slot;
+                continue;
+            }
+
             if (pSlot < 0) {
                 // Root: world = local
                 worldData.set(_tempLocal, wo);
@@ -570,4 +580,4 @@ class TransformStore {
  */
 const transformStore = new TransformStore(4096);
 
-export { TransformStore, transformStore, LOCAL_STRIDE, WORLD_STRIDE, DIRTY_LOCAL, DIRTY_WORLD, SCALE_COMP, ENABLED };
+export { TransformStore, transformStore, LOCAL_STRIDE, WORLD_STRIDE, DIRTY_LOCAL, DIRTY_WORLD, SCALE_COMP, ENABLED, CUSTOM_SYNC };
