@@ -1913,12 +1913,14 @@ static findNode(node, test) {
     if (this._parent === null) {
       this.localRotation.mul2(rotation, this.localRotation);
     } else {
-      const rot = this.getRotation();
+      // Copy world rotation before calling parent.getRotation(),
+      // because both return the same shared _worldRot scratch object.
+      tmpQuat.copy(this.getRotation());
       const parentRot = this._parent.getRotation();
 
       invParentRot.copy(parentRot).invert();
       rotation.mul2(invParentRot, rotation);
-      this.localRotation.mul2(rotation, rot);
+      this.localRotation.mul2(rotation, tmpQuat);
     }
 
     if (this._frozen) {
