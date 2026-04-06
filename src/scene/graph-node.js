@@ -1736,8 +1736,13 @@ static findNode(node, test) {
       if (!node) continue;
 
       if (storeFlags[slot] & CUSTOM_SYNC) {
-        // CUSTOM_SYNC — let the node compute its own world matrix
+        // CUSTOM_SYNC — let the node compute its own world matrix.
+        // Dirty flags are still set so _sync() can read them.
         node._sync();
+        // Clean up any flags _sync() didn't clear (e.g. non-screen elements
+        // leave DIRTY_WORLD set because the base _sync() expects propagate()
+        // to handle it, but propagate() skips CUSTOM_SYNC nodes).
+        storeFlags[slot] &= ~(DIRTY_LOCAL | DIRTY_WORLD);
       }
 
       node._frozen = true;
