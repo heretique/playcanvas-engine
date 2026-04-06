@@ -329,12 +329,32 @@ class TransformStore {
 
             if (!selfDirty && !parentUpdated) continue;
 
+            if (flags[slot] & CUSTOM_SYNC) {
+                // CUSTOM_SYNC nodes (Element components) compute their own
+                // world matrix in Phase 2 via _sync(). Skip world computation
+                // here — screen-space elements need a different transform.
+                // Build the local matrix into localMatData for _sync() to use.
+                const lo = slot * LOCAL_STRIDE;
+                const wo = slot * WORLD_STRIDE;
+                setTRSFromArray(localData, lo, localMatData, wo);
+                lastUpdate[slot] = frame;
+                // Preserve dirty flags for Phase 2 — _sync() reads them.
+                updated[updatedCount++] = slot;
+                continue;
+            }
+
+            // Skip non-CUSTOM_SYNC children of CUSTOM_SYNC parents.
+            // Their world matrix depends on the parent's final transform which
+            // is only known after Phase 2 _sync(). Phase 2 will propagate to
+            // these children after updating the parent.
+            if (pSlot >= 0 && (flags[pSlot] & CUSTOM_SYNC)) {
+                continue;
+            }
+
             const lo = slot * LOCAL_STRIDE;
             const wo = slot * WORLD_STRIDE;
             setTRSFromArray(localData, lo, _tempLocal, 0);
 
-            // Compute world matrix for all nodes (including CUSTOM_SYNC) so that
-            // non-CUSTOM_SYNC children always have a valid parent world matrix.
             if (pSlot < 0) {
                 // Root: world = local
                 worldData.set(_tempLocal, wo);
@@ -348,24 +368,37 @@ class TransformStore {
             }
 
             lastUpdate[slot] = frame;
-
-            if (flags[slot] & CUSTOM_SYNC) {
-                // CUSTOM_SYNC nodes (Element components) need Phase 2 to run
-                // _sync() which may recompute localTransform, margins, and
-                // override worldTransform for screen-space UI.
-                // Copy the local matrix to localMatData so _sync() has a
-                // consistent starting point.
-                localMatData.set(_tempLocal, wo);
-                // Preserve dirty flags for Phase 2 — _sync() reads them.
-                updated[updatedCount++] = slot;
-                continue;
-            }
-
             flags[slot] &= ~(DIRTY_LOCAL | DIRTY_WORLD);
             updated[updatedCount++] = slot;
         }
 
         this._updatedCount = updatedCount;
+    }
+
+    /**
+     * Propagate world matrices to non-CUSTOM_SYNC children of a given slot.
+     * Called in Phase 2 after _sync() sets the final world matrix for a
+     * CUSTOM_SYNC node, so that internal GraphNode children (e.g. image/text
+     * mesh nodes) pick up the correct parent world transform.
+     *
+     * @param {number} parentSlotId - The parent slot whose children need updating.
+     */
+    propagateToChildren(parentSlotId) {
+        const localData = this.localData;
+        const worldData = this.worldData;
+        const flags = this.flags;
+        const po = parentSlotId * WORLD_STRIDE;
+
+        let child = this.firstChild[parentSlotId];
+        while (child >= 0) {
+            if ((flags[child] & ENABLED) && !(flags[child] & CUSTOM_SYNC)) {
+                const clo = child * LOCAL_STRIDE;
+                const cwo = child * WORLD_STRIDE;
+                setTRSFromArray(localData, clo, _tempLocal, 0);
+                mulAffine2Arrays(worldData, po, _tempLocal, 0, worldData, cwo);
+            }
+            child = this.nextSibling[child];
+        }
     }
 
     /**

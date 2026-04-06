@@ -1743,6 +1743,9 @@ static findNode(node, test) {
         // leave DIRTY_WORLD set because the base _sync() expects propagate()
         // to handle it, but propagate() skips CUSTOM_SYNC nodes).
         storeFlags[slot] &= ~(DIRTY_LOCAL | DIRTY_WORLD);
+        // Propagate the corrected world matrix to non-CUSTOM_SYNC children
+        // (e.g. internal image/text GraphNodes) that were skipped by propagate().
+        transformStore.propagateToChildren(slot);
       }
 
       node._frozen = true;
