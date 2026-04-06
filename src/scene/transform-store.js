@@ -338,6 +338,11 @@ class TransformStore {
                 const wo = slot * WORLD_STRIDE;
                 setTRSFromArray(localData, lo, localMatData, wo);
                 lastUpdate[slot] = frame;
+                // Ensure _sync() knows the world needs recomputing when a
+                // parent moved (parentUpdated) even if this node isn't dirty.
+                if (parentUpdated) {
+                    flags[slot] |= DIRTY_WORLD;
+                }
                 // Preserve dirty flags for Phase 2 — _sync() reads them.
                 updated[updatedCount++] = slot;
                 continue;
