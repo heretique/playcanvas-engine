@@ -309,6 +309,8 @@ class Immediate {
     getGraphNode(matrix) {
         const graphNode = new GraphNode('ImmediateDebug');
         graphNode.worldTransform.copy(matrix);
+        graphNode._dirtyLocal = false;
+        graphNode._dirtyWorld = false;
         graphNode._dirtyNormal = false;
 
         return graphNode;

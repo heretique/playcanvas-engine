@@ -178,6 +178,8 @@ class WorldClustersDebug {
 
                 const node = new GraphNode('WorldClustersDebug');
                 node.worldTransform.copy(Mat4.IDENTITY);
+                node._dirtyLocal = false;
+                node._dirtyWorld = false;
                 node._dirtyNormal = false;
 
                 WorldClustersDebug.meshInstance = new MeshInstance(mesh, material, node);

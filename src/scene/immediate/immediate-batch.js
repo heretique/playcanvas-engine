@@ -8,6 +8,8 @@ import { GraphNode } from '../graph-node.js';
 
 const identityGraphNode = new GraphNode();
 identityGraphNode.worldTransform.copy(Mat4.IDENTITY);
+identityGraphNode._dirtyLocal = false;
+identityGraphNode._dirtyWorld = false;
 identityGraphNode._dirtyNormal = false;
 
 // helper class storing data for a single batch of line rendering using a single material
