@@ -274,6 +274,15 @@ class Mat4View extends Mat4 {
     }
 
     /**
+     * Returns a clone as a plain Mat4 (not backed by the store).
+     *
+     * @returns {Mat4} A new Mat4 with the same data.
+     */
+    clone() {
+        return new Mat4().copy(this);
+    }
+
+    /**
      * Rebinds this view to a (possibly new) store array after store growth. Since subarrays hold a
      * reference to the original typed array, this must be called when the store replaces its array.
      *
