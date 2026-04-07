@@ -782,7 +782,7 @@ class Material {
         return this.parameters[name];
     }
 
-    _setParameterSimple(name, data) {
+    _setParameterSimple(name, data, scope) {
 
         Debug.call(() => {
             if (data === undefined) {
@@ -793,9 +793,12 @@ class Material {
         const param = this.parameters[name];
         if (param) {
             param.data = data;
+            if (scope && !param.scopeId) {
+                param.scopeId = scope.resolve(name);
+            }
         } else {
             this.parameters[name] = {
-                scopeId: null,
+                scopeId: scope ? scope.resolve(name) : null,
                 data: data
             };
             this._parameterNames.push(name);

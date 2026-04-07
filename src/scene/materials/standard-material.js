@@ -647,7 +647,7 @@ class StandardMaterial extends Material {
 
     _setParameter(name, value) {
         _params.add(name);
-        this.setParameter(name, value);
+        this._setParameterSimple(name, value, this._scope);
     }
 
     _setParameters(parameters) {
@@ -660,7 +660,7 @@ class StandardMaterial extends Material {
         const prevParams = this[paramsName];
         prevParams.forEach((param) => {
             if (!_params.has(param)) {
-                delete this.parameters[param];
+                this.deleteParameter(param);
             }
         });
 
@@ -698,6 +698,8 @@ class StandardMaterial extends Material {
     }
 
     updateUniforms(device, scene) {
+        this._scope = device.scope;
+
         const getUniform = (name) => {
             return this.getUniform(name, device, scene);
         };
