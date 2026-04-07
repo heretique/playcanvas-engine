@@ -86,6 +86,23 @@ class Layer {
     meshInstancesSet = new Set();
 
     /**
+     * Culling store slot indices for mesh instances using the fast SoA culling path.
+     *
+     * @type {number[]}
+     * @ignore
+     */
+    fastCullSlots = [];
+
+    /**
+     * Mesh instances that require the slow (object-based) culling path due to
+     * custom visibility or AABB callbacks.
+     *
+     * @type {MeshInstance[]}
+     * @ignore
+     */
+    slowCullInstances = [];
+
+    /**
      * Shadow casting instances assigned to this layer.
      *
      * @type {MeshInstance[]}
@@ -582,6 +599,13 @@ class Layer {
                 destMeshInstances.push(mi);
                 destMeshInstancesSet.add(mi);
                 _tempMaterials.add(mi.material);
+
+                // Classify for fast/slow culling path
+                if (mi.isVisibleFunc || mi._updateAabbFunc) {
+                    this.slowCullInstances.push(mi);
+                } else {
+                    this.fastCullSlots.push(mi._cullSlot);
+                }
             }
         }
 
@@ -630,6 +654,15 @@ class Layer {
                 const j = destMeshInstances.indexOf(mi);
                 if (j >= 0) {
                     destMeshInstances.splice(j, 1);
+                }
+
+                // Remove from fast/slow culling path lists
+                if (mi.isVisibleFunc || mi._updateAabbFunc) {
+                    const si = this.slowCullInstances.indexOf(mi);
+                    if (si >= 0) this.slowCullInstances.splice(si, 1);
+                } else {
+                    const fi = this.fastCullSlots.indexOf(mi._cullSlot);
+                    if (fi >= 0) this.fastCullSlots.splice(fi, 1);
                 }
             }
         }
