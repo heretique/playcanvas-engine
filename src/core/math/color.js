@@ -40,6 +40,14 @@ class Color {
     a;
 
     /**
+     * A version counter that increments on every mutation, enabling dirty-checking without proxies
+     * or deep comparison.
+     *
+     * @type {number}
+     */
+    _version = 0;
+
+    /**
      * Creates a new Color instance.
      *
      * @overload
@@ -110,6 +118,7 @@ class Color {
      * console.log("The two colors are " + (dst.equals(src) ? "equal" : "different"));
      */
     copy(rhs) {
+        this._version++;
         this.r = rhs.r;
         this.g = rhs.g;
         this.b = rhs.b;
@@ -146,6 +155,7 @@ class Color {
      * // c is now red [1, 0, 0, 1]
      */
     set(r, g, b, a = 1) {
+        this._version++;
         this.r = r;
         this.g = g;
         this.b = b;
@@ -173,6 +183,7 @@ class Color {
      * r.lerp(a, b, 1);   // r is equal to b
      */
     lerp(lhs, rhs, alpha) {
+        this._version++;
         this.r = lhs.r + alpha * (rhs.r - lhs.r);
         this.g = lhs.g + alpha * (rhs.g - lhs.g);
         this.b = lhs.b + alpha * (rhs.b - lhs.b);
@@ -193,6 +204,7 @@ class Color {
      * // c is now approximately [0.218, 0.218, 0.218, 1]
      */
     linear(src = this) {
+        this._version++;
         this.r = Math.pow(src.r, 2.2);
         this.g = Math.pow(src.g, 2.2);
         this.b = Math.pow(src.b, 2.2);
@@ -212,6 +224,7 @@ class Color {
      * // c is now approximately [0.5, 0.5, 0.5, 1]
      */
     gamma(src = this) {
+        this._version++;
         this.r = Math.pow(src.r, 1 / 2.2);
         this.g = Math.pow(src.g, 1 / 2.2);
         this.b = Math.pow(src.b, 1 / 2.2);
@@ -230,6 +243,7 @@ class Color {
      * // c is now [0.4, 0.8, 1.2, 1]
      */
     mulScalar(scalar) {
+        this._version++;
         this.r *= scalar;
         this.g *= scalar;
         this.b *= scalar;
@@ -276,6 +290,7 @@ class Color {
      * // c is set to [1, 0, 1, 1]
      */
     fromArray(arr, offset = 0) {
+        this._version++;
         this.r = arr[offset] ?? this.r;
         this.g = arr[offset + 1] ?? this.g;
         this.b = arr[offset + 2] ?? this.b;

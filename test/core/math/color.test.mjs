@@ -238,4 +238,81 @@ describe('Color', function () {
         });
 
     });
+
+    describe('#_version', function () {
+
+        it('starts at 0', function () {
+            const c = new Color();
+            expect(c._version).to.equal(0);
+        });
+
+        it('increments on copy', function () {
+            const c = new Color(1, 0, 0, 1);
+            const dst = new Color();
+            dst.copy(c);
+            expect(dst._version).to.equal(1);
+        });
+
+        it('increments on set', function () {
+            const c = new Color();
+            c.set(1, 0, 0, 1);
+            expect(c._version).to.equal(1);
+        });
+
+        it('increments on lerp', function () {
+            const a = new Color(0, 0, 0, 1);
+            const b = new Color(1, 1, 1, 1);
+            const result = new Color();
+            result.lerp(a, b, 0.5);
+            expect(result._version).to.equal(1);
+        });
+
+        it('increments on linear', function () {
+            const c = new Color(0.5, 0.5, 0.5, 1);
+            c.linear();
+            expect(c._version).to.equal(1);
+        });
+
+        it('increments on gamma', function () {
+            const c = new Color(0.218, 0.218, 0.218, 1);
+            c.gamma();
+            expect(c._version).to.equal(1);
+        });
+
+        it('increments on mulScalar', function () {
+            const c = new Color(0.2, 0.4, 0.6, 1);
+            c.mulScalar(2);
+            expect(c._version).to.equal(1);
+        });
+
+        it('increments on fromArray', function () {
+            const c = new Color();
+            c.fromArray([1, 0, 1, 1]);
+            expect(c._version).to.equal(1);
+        });
+
+        it('increments exactly once on fromString (via internal set)', function () {
+            const c = new Color();
+            c.fromString('#ff0000');
+            expect(c._version).to.equal(1);
+        });
+
+        it('does not increment the source version on clone', function () {
+            const c = new Color(1, 0, 0, 1);
+            const v = c._version;
+            c.clone();
+            expect(c._version).to.equal(v);
+        });
+
+        it('increments by 1 on each successive mutation', function () {
+            const c = new Color();
+            c.set(1, 0, 0, 1);
+            expect(c._version).to.equal(1);
+            c.set(0, 1, 0, 1);
+            expect(c._version).to.equal(2);
+            c.mulScalar(0.5);
+            expect(c._version).to.equal(3);
+        });
+
+    });
 });
