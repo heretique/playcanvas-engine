@@ -132,6 +132,85 @@ class CullingStore {
         this.count--;
     }
 
+    /**
+     * Write local-space bounding sphere data for a slot.
+     *
+     * @param {number} slot - The culling slot index.
+     * @param {number} cx - Local center X.
+     * @param {number} cy - Local center Y.
+     * @param {number} cz - Local center Z.
+     * @param {number} radius - Local bounding sphere radius.
+     */
+    setLocalBounds(slot, cx, cy, cz, radius) {
+        const off = slot * SPHERE_STRIDE;
+        this.localBoundsData[off] = cx;
+        this.localBoundsData[off + 1] = cy;
+        this.localBoundsData[off + 2] = cz;
+        this.localBoundsData[off + 3] = radius;
+    }
+
+    /**
+     * Recompute world-space bounding spheres for all slots whose linked graph node
+     * was updated in the given frame.
+     *
+     * Must be called after syncHierarchy() completes (both propagate and CUSTOM_SYNC phases).
+     *
+     * @param {object} transformStore - The transform store to read world matrices from.
+     * @param {number} currentFrame - The current frame number.
+     */
+    updateWorldSpheres(transformStore, currentFrame) {
+        const worldData = transformStore.worldData;
+        const lastWorldUpdate = transformStore.lastWorldUpdate;
+        const graphNodeSlots = this.graphNodeSlots;
+        const localBounds = this.localBoundsData;
+        const spheres = this.sphereData;
+        const maxSlot = this._nextSlot;
+
+        for (let slot = 0; slot < maxSlot; slot++) {
+            const nodeSlot = graphNodeSlots[slot];
+            if (nodeSlot < 0) continue; // freed slot
+            if (lastWorldUpdate[nodeSlot] !== currentFrame) continue; // not updated this frame
+
+            const lb = slot * SPHERE_STRIDE;
+            const lcx = localBounds[lb];
+            const lcy = localBounds[lb + 1];
+            const lcz = localBounds[lb + 2];
+            const lr = localBounds[lb + 3];
+
+            // Read world matrix (column-major 4x4) at nodeSlot * 16
+            const wo = nodeSlot * 16;
+            const m0 = worldData[wo];      // col0.x
+            const m1 = worldData[wo + 1];  // col0.y
+            const m2 = worldData[wo + 2];  // col0.z
+            const m4 = worldData[wo + 4];  // col1.x
+            const m5 = worldData[wo + 5];  // col1.y
+            const m6 = worldData[wo + 6];  // col1.z
+            const m8 = worldData[wo + 8];  // col2.x
+            const m9 = worldData[wo + 9];  // col2.y
+            const m10 = worldData[wo + 10]; // col2.z
+            const m12 = worldData[wo + 12]; // translation.x
+            const m13 = worldData[wo + 13]; // translation.y
+            const m14 = worldData[wo + 14]; // translation.z
+
+            // Transform local center by world matrix
+            const wcx = m0 * lcx + m4 * lcy + m8 * lcz + m12;
+            const wcy = m1 * lcx + m5 * lcy + m9 * lcz + m13;
+            const wcz = m2 * lcx + m6 * lcy + m10 * lcz + m14;
+
+            // Scale radius by max column length (max axis scale)
+            const sx = Math.sqrt(m0 * m0 + m1 * m1 + m2 * m2);
+            const sy = Math.sqrt(m4 * m4 + m5 * m5 + m6 * m6);
+            const sz = Math.sqrt(m8 * m8 + m9 * m9 + m10 * m10);
+            const maxScale = Math.max(sx, sy, sz);
+
+            const sb = slot * SPHERE_STRIDE;
+            spheres[sb] = wcx;
+            spheres[sb + 1] = wcy;
+            spheres[sb + 2] = wcz;
+            spheres[sb + 3] = lr * maxScale;
+        }
+    }
+
     /** @private */
     _grow() {
         const newCapacity = this.capacity * 2;
