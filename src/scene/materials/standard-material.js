@@ -660,7 +660,7 @@ class StandardMaterial extends Material {
         const prevParams = this[paramsName];
         prevParams.forEach((param) => {
             if (!_params.has(param)) {
-                this.deleteParameter(param);
+                delete this.parameters[param];
             }
         });
 

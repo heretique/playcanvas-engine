@@ -125,12 +125,6 @@ class Material {
     parameters = {};
 
     /**
-     * @type {string[]}
-     * @ignore
-     */
-    _parameterNames = [];
-
-    /**
      * The alpha test reference value to control which fragments are written to the currently
      * active render target based on alpha value. All fragments with an alpha value of less than
      * the alphaTest reference value will be discarded. alphaTest defaults to 0 (all fragments
@@ -755,7 +749,6 @@ class Material {
     // Parameter management
     clearParameters() {
         this.parameters = {};
-        this._parameterNames.length = 0;
     }
 
     getParameters() {
@@ -801,7 +794,6 @@ class Material {
                 scopeId: scope ? scope.resolve(name) : null,
                 data: data
             };
-            this._parameterNames.push(name);
         }
     }
 
@@ -836,49 +828,23 @@ class Material {
     deleteParameter(name) {
         if (this.parameters[name]) {
             delete this.parameters[name];
-            const idx = this._parameterNames.indexOf(name);
-            if (idx !== -1) {
-                this._parameterNames.splice(idx, 1);
-            }
         }
     }
 
     // used to apply parameters from this material into scope of uniforms, called internally by forward-renderer
     // optional list of parameter names to be set can be specified, otherwise all parameters are set
+    // used to apply parameters from this material into scope of uniforms, called internally by forward-renderer
+    // optional list of parameter names to be set can be specified, otherwise all parameters are set
     setParameters(device, names) {
         const parameters = this.parameters;
-        if (names === undefined) {
-            const keys = this._parameterNames;
-            for (let i = 0; i < keys.length; i++) {
-                const parameter = parameters[keys[i]];
+        if (names === undefined) names = parameters;
+        for (const paramName in names) {
+            const parameter = parameters[paramName];
+            if (parameter) {
                 if (!parameter.scopeId) {
-                    parameter.scopeId = device.scope.resolve(keys[i]);
+                    parameter.scopeId = device.scope.resolve(paramName);
                 }
                 parameter.scopeId.setValue(parameter.data);
-            }
-        } else {
-            // names can be a Material (has _parameterNames) or a plain object (MeshInstance.parameters)
-            const filterKeys = names._parameterNames;
-            if (filterKeys) {
-                for (let i = 0; i < filterKeys.length; i++) {
-                    const parameter = parameters[filterKeys[i]];
-                    if (parameter) {
-                        if (!parameter.scopeId) {
-                            parameter.scopeId = device.scope.resolve(filterKeys[i]);
-                        }
-                        parameter.scopeId.setValue(parameter.data);
-                    }
-                }
-            } else {
-                for (const paramName in names) {
-                    const parameter = parameters[paramName];
-                    if (parameter) {
-                        if (!parameter.scopeId) {
-                            parameter.scopeId = device.scope.resolve(paramName);
-                        }
-                        parameter.scopeId.setValue(parameter.data);
-                    }
-                }
             }
         }
     }
