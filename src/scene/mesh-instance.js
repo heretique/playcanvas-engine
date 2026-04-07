@@ -381,6 +381,12 @@ class MeshInstance {
     parameters = {};
 
     /**
+     * @type {string[]}
+     * @ignore
+     */
+    _parameterNames = [];
+
+    /**
      * True if the mesh instance is pickable by the {@link Picker}. Defaults to true.
      *
      * @type {boolean}
@@ -1382,6 +1388,7 @@ class MeshInstance {
                 data: data,
                 passFlags: passFlags
             };
+            this._parameterNames.push(name);
         }
     }
 
@@ -1422,6 +1429,10 @@ class MeshInstance {
     deleteParameter(name) {
         if (this.parameters[name]) {
             delete this.parameters[name];
+            const idx = this._parameterNames.indexOf(name);
+            if (idx !== -1) {
+                this._parameterNames.splice(idx, 1);
+            }
         }
     }
 
@@ -1435,11 +1446,12 @@ class MeshInstance {
      */
     setParameters(device, passFlag) {
         const parameters = this.parameters;
-        for (const paramName in parameters) {
-            const parameter = parameters[paramName];
+        const keys = this._parameterNames;
+        for (let i = 0; i < keys.length; i++) {
+            const parameter = parameters[keys[i]];
             if (parameter.passFlags & passFlag) {
                 if (!parameter.scopeId) {
-                    parameter.scopeId = device.scope.resolve(paramName);
+                    parameter.scopeId = device.scope.resolve(keys[i]);
                 }
                 parameter.scopeId.setValue(parameter.data);
             }

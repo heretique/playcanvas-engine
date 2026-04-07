@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { Material } from '../../../src/scene/materials/material.js';
+import { MeshInstance } from '../../../src/scene/mesh-instance.js';
 
 describe('Material parameter iteration', function () {
 
@@ -112,6 +113,64 @@ describe('Material parameter iteration', function () {
             const plainFilter = { param_a: { scopeId: null, data: 999 } };
 
             mat.setParameters(mockDevice, plainFilter);
+
+            expect(values['param_a']).to.equal(1.0);
+            expect(values['param_b']).to.be.undefined;
+        });
+    });
+});
+
+describe('MeshInstance parameter iteration', function () {
+
+    function createMinimalMeshInstance() {
+        const mi = Object.create(MeshInstance.prototype);
+        mi.parameters = {};
+        mi._parameterNames = [];
+        return mi;
+    }
+
+    describe('#_parameterNames', function () {
+
+        it('should track names added via setParameter', function () {
+            const mi = createMinimalMeshInstance();
+            mi.setParameter('test_param', 1.0);
+            expect(mi._parameterNames).to.include('test_param');
+        });
+
+        it('should not duplicate names on update', function () {
+            const mi = createMinimalMeshInstance();
+            mi.setParameter('test_param', 1.0);
+            mi.setParameter('test_param', 2.0);
+            const count = mi._parameterNames.filter(n => n === 'test_param').length;
+            expect(count).to.equal(1);
+        });
+
+        it('should remove names on deleteParameter', function () {
+            const mi = createMinimalMeshInstance();
+            mi.setParameter('test_param', 1.0);
+            mi.deleteParameter('test_param');
+            expect(mi._parameterNames).to.not.include('test_param');
+        });
+    });
+
+    describe('#setParameters', function () {
+
+        it('should set parameters filtered by passFlag', function () {
+            const mi = createMinimalMeshInstance();
+            const values = {};
+            const mockScope = {
+                resolve(name) {
+                    return {
+                        setValue(data) { values[name] = data; }
+                    };
+                }
+            };
+            const mockDevice = { scope: mockScope };
+
+            mi.setParameter('param_a', 1.0, 0x01);
+            mi.setParameter('param_b', 2.0, 0x02);
+
+            mi.setParameters(mockDevice, 0x01);
 
             expect(values['param_a']).to.equal(1.0);
             expect(values['param_b']).to.be.undefined;
