@@ -555,6 +555,13 @@ class StandardMaterial extends Material {
     onUpdateShader;
 
     /**
+     * Tracks Color._version for each color property to detect in-place mutations.
+     * @type {Object<string, number>}
+     * @ignore
+     */
+    _colorVersions = {};
+
+    /**
      * Create a new StandardMaterial instance.
      *
      * @example
@@ -814,6 +821,9 @@ class StandardMaterial extends Material {
         // remove unused params
         this._processParameters('_activeParams');
 
+        // Snapshot color versions for future in-place mutation detection
+        this._snapshotColorVersions();
+
         super.updateUniforms(device, scene);
     }
 
@@ -872,6 +882,30 @@ class StandardMaterial extends Material {
 
         this._dirtyShader = false;
         return shader;
+    }
+
+    /**
+     * Snapshot current color versions. Call after updateUniforms.
+     * @ignore
+     */
+    _snapshotColorVersions() {
+        this._colorVersions.ambient = this._ambient._version;
+        this._colorVersions.diffuse = this._diffuse._version;
+        this._colorVersions.specular = this._specular._version;
+        this._colorVersions.emissive = this._emissive._version;
+        this._colorVersions.sheen = this._sheen._version;
+        this._colorVersions.attenuation = this._attenuation._version;
+    }
+
+    /**
+     * Check if a color property was mutated in-place since last snapshot.
+     * @param {string} name - The color property name.
+     * @returns {boolean} True if the color was mutated.
+     * @ignore
+     */
+    _hasColorChanged(name) {
+        const ver = this._colorVersions[name];
+        return ver !== undefined && this[`_${name}`]._version !== ver;
     }
 
     /**
@@ -1043,14 +1077,7 @@ function _defineColor(name, defaultValue) {
     defineProp({
         name: name,
         defaultValue: defaultValue,
-        getterFunc: function () {
-            // HACK: since we can't detect whether a user is going to set a color property
-            // after calling this getter (i.e doing material.ambient.r = 0.5) we must assume
-            // the worst and flag the shader as dirty.
-            // This means currently animating a material color is horribly slow.
-            this._dirtyShader = true;
-            return this[`_${name}`];
-        }
+        dirtyShaderFunc: () => false  // color value changes never affect shader variants
     });
 
     defineUniform(name, (material, device, scene) => {
