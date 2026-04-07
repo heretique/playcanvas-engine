@@ -1750,7 +1750,7 @@ static findNode(node, test) {
 
       node._frozen = true;
       node._dirtyNormal = true;
-      node._worldScaleSign = 0;
+      node._worldScaleSign = node.worldTransform.scaleSign;
     }
 
   }

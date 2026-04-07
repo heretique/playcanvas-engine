@@ -381,6 +381,14 @@ class MeshInstance {
     parameters = {};
 
     /**
+     * True if this mesh instance has per-instance parameter overrides.
+     *
+     * @type {boolean}
+     * @ignore
+     */
+    _hasParameters = false;
+
+    /**
      * True if the mesh instance is pickable by the {@link Picker}. Defaults to true.
      *
      * @type {boolean}
@@ -1382,6 +1390,7 @@ class MeshInstance {
                 data: data,
                 passFlags: passFlags
             };
+            this._hasParameters = true;
         }
     }
 

@@ -1177,11 +1177,11 @@ class Mat4 {
      * @ignore
      */
     get scaleSign() {
-        this.getX(x);
-        this.getY(y);
-        this.getZ(z);
-        x.cross(x, y);
-        return x.dot(z) < 0 ? -1 : 1;
+        const m = this.data;
+        const cofactor = m[0] * (m[5] * m[10] - m[6] * m[9]) -
+                         m[1] * (m[4] * m[10] - m[6] * m[8]) +
+                         m[2] * (m[4] * m[9] - m[5] * m[8]);
+        return cofactor < 0 ? -1 : 1;
     }
 
     /**

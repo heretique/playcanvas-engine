@@ -704,7 +704,7 @@ class ForwardRenderer extends Renderer {
             }
 
             // Unset meshInstance overrides back to material values if next draw call will use the same material
-            if (i < preparedCallsCount - 1 && !preparedCalls.isNewMaterial[i + 1]) {
+            if (drawCall._hasParameters && i < preparedCallsCount - 1 && !preparedCalls.isNewMaterial[i + 1]) {
                 material.setParameters(device, drawCall.parameters);
             }
 
