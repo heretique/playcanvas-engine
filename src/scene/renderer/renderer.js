@@ -8,6 +8,7 @@ import { Mat3 } from '../../core/math/mat3.js';
 import { Mat4 } from '../../core/math/mat4.js';
 import { BoundingSphere } from '../../core/shape/bounding-sphere.js';
 import { Frustum } from '../../core/shape/frustum.js';
+import { cullingStore, CULL_VISIBLE, CULL_TRANSPARENT } from '../culling-store.js';
 import {
     CLEARFLAG_COLOR, CLEARFLAG_DEPTH, CLEARFLAG_STENCIL,
     BINDGROUP_MESH, BINDGROUP_VIEW, UNIFORM_BUFFER_DEFAULT_SLOT_NAME,
@@ -101,6 +102,9 @@ const _tempSet = new Set();
 
 const _tempMeshInstances = [];
 const _tempMeshInstancesSkinned = [];
+
+const _planeData = new Float32Array(24);
+let _cullResults = new Uint8Array(0);
 
 /**
  * The base renderer functionality to allow implementation of specialized renderers.
@@ -847,10 +851,12 @@ class Renderer {
 
     /**
      * @param {Camera} camera - The camera used for culling.
-     * @param {MeshInstance[]} drawCalls - Draw calls to cull.
+     * @param {MeshInstance[]} drawCalls - Draw calls to cull (used for slow path).
      * @param {CulledInstances} culledInstances - Stores culled instances.
+     * @param {number[]} fastCullSlots - Culling store slots for fast path.
+     * @param {MeshInstance[]} slowCullInstances - Instances for slow path.
      */
-    cull(camera, drawCalls, culledInstances) {
+    cull(camera, drawCalls, culledInstances, fastCullSlots, slowCullInstances) {
         // #if _PROFILER
         const cullTime = now();
         // #endif
@@ -861,24 +867,65 @@ class Renderer {
         transparent.length = 0;
 
         const doCull = camera.frustumCulling;
-        const count = drawCalls.length;
 
-        for (let i = 0; i < count; i++) {
-            const drawCall = drawCalls[i];
+        // --- Fast path: SoA frustum test ---
+        if (fastCullSlots.length > 0) {
+            // Ensure results buffer is large enough
+            if (_cullResults.length < cullingStore.capacity) {
+                _cullResults = new Uint8Array(cullingStore.capacity);
+            }
+
+            // Clear results for slots we'll test
+            const slotCount = fastCullSlots.length;
+            for (let i = 0; i < slotCount; i++) {
+                _cullResults[fastCullSlots[i]] = 0;
+            }
+
+            if (doCull) {
+                cullingStore.cullFrustum(_planeData, fastCullSlots, _cullResults);
+            } else {
+                // No frustum culling — mark all visible slots
+                for (let i = 0; i < slotCount; i++) {
+                    const slot = fastCullSlots[i];
+                    if (cullingStore.flagsData[slot] & CULL_VISIBLE) {
+                        _cullResults[slot] = 1;
+                    }
+                }
+            }
+
+            // Bucket visible instances
+            for (let i = 0; i < slotCount; i++) {
+                const slot = fastCullSlots[i];
+                if (!_cullResults[slot]) continue;
+
+                const drawCall = cullingStore.meshInstances[slot];
+                drawCall.visibleThisFrame = true;
+
+                const bucket = (cullingStore.flagsData[slot] & CULL_TRANSPARENT) ? transparent : opaque;
+                bucket.push(drawCall);
+
+                if (drawCall.skinInstance || drawCall.morphInstance || drawCall.gsplatInstance) {
+                    this.processingMeshInstances.add(drawCall);
+                    if (drawCall.gsplatInstance) {
+                        drawCall.gsplatInstance.cameras.push(camera);
+                    }
+                }
+            }
+        }
+
+        // --- Slow path: existing object-based culling ---
+        const slowCount = slowCullInstances.length;
+        for (let i = 0; i < slowCount; i++) {
+            const drawCall = slowCullInstances[i];
             if (drawCall.visible) {
-
                 const visible = !doCull || !drawCall.cull || drawCall._isVisible(camera);
                 if (visible) {
                     drawCall.visibleThisFrame = true;
-
-                    // sort mesh instance into the right bucket based on its transparency
                     const bucket = drawCall.transparent ? transparent : opaque;
                     bucket.push(drawCall);
 
                     if (drawCall.skinInstance || drawCall.morphInstance || drawCall.gsplatInstance) {
                         this.processingMeshInstances.add(drawCall);
-
-                        // register visible cameras
                         if (drawCall.gsplatInstance) {
                             drawCall.gsplatInstance.cameras.push(camera);
                         }
@@ -889,7 +936,7 @@ class Renderer {
 
         // #if _PROFILER
         this._cullTime += now() - cullTime;
-        this._numDrawCallsCulled += doCull ? count : 0;
+        this._numDrawCallsCulled += doCull ? (fastCullSlots.length + slowCount) : 0;
         // #endif
     }
 
@@ -1100,6 +1147,7 @@ class Renderer {
             const renderTarget = camera.renderTarget;
             camera.frameUpdate(renderTarget);
             this.updateCameraFrustum(camera.camera);
+            camera.camera.frustum.getPlaneData(_planeData);
 
             // for all of its enabled layers
             const layerIds = camera.layers;
@@ -1113,7 +1161,8 @@ class Renderer {
 
                     // cull mesh instances
                     const culledInstances = layer.getCulledInstances(camera.camera);
-                    this.cull(camera.camera, layer.meshInstances, culledInstances);
+                    this.cull(camera.camera, layer.meshInstances, culledInstances,
+                              layer.fastCullSlots, layer.slowCullInstances);
                 }
             }
 
