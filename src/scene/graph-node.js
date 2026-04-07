@@ -17,6 +17,7 @@ import {
   CUSTOM_SYNC,
 } from "./transform-store.js";
 import { Vec3View, QuatView, Mat4View } from "./view-classes.js";
+import { cullingStore } from './culling-store.js';
 
 const scaleCompensatePosTransform = new Mat4();
 const scaleCompensatePos = new Vec3();
@@ -1752,6 +1753,10 @@ static findNode(node, test) {
       node._dirtyNormal = true;
       node._worldScaleSign = 0;
     }
+
+    // Update world-space bounding spheres for all mesh instances
+    // whose graph node transforms changed this frame.
+    cullingStore.updateWorldSpheres(transformStore, transformStore.currentFrame);
   }
 
   /**

@@ -1281,6 +1281,26 @@ class Renderer {
         // Update all skin matrices to properly cull skinned objects (but don't update rendering data yet)
         this.updateCpuSkinMatrices(_tempMeshInstancesSkinned);
 
+        // Update culling store spheres for skinned mesh instances
+        for (let i = 0; i < _tempMeshInstancesSkinned.length; i++) {
+            const meshInst = _tempMeshInstancesSkinned[i];
+            if (meshInst._cullSlot >= 0) {
+                // Recompute world-space bounding sphere from the aabb getter
+                // (which computes the skinned AABB from bone matrices)
+                const aabb = meshInst.aabb;
+                const cx = aabb.center.x;
+                const cy = aabb.center.y;
+                const cz = aabb.center.z;
+                const he = aabb.halfExtents;
+                const r = Math.sqrt(he.x * he.x + he.y * he.y + he.z * he.z);
+                const off = meshInst._cullSlot * 4;
+                cullingStore.sphereData[off] = cx;
+                cullingStore.sphereData[off + 1] = cy;
+                cullingStore.sphereData[off + 2] = cz;
+                cullingStore.sphereData[off + 3] = r;
+            }
+        }
+
         // clear light arrays
         _tempMeshInstances.length = 0;
         _tempMeshInstancesSkinned.length = 0;
