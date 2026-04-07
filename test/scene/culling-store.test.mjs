@@ -1,6 +1,8 @@
 import { expect } from 'chai';
 import { CullingStore, CULL_VISIBLE, CULL_ENABLED, CULL_TRANSPARENT, CULL_CUSTOM } from '../../src/scene/culling-store.js';
 import { TransformStore } from '../../src/scene/transform-store.js';
+import { Frustum } from '../../src/core/shape/frustum.js';
+import { Mat4 } from '../../src/core/math/mat4.js';
 
 describe('CullingStore', function () {
 
@@ -136,6 +138,105 @@ describe('CullingStore', function () {
 
             // Should NOT have been updated (no transform change this frame)
             expect(cs.sphereData[cullSlot * 4]).to.equal(999);
+        });
+    });
+
+    describe('Frustum.getPlaneData', function () {
+
+        it('should flatten 6 planes into a Float32Array of 24 floats', function () {
+            const frustum = new Frustum();
+            const viewProj = new Mat4();
+            viewProj.setPerspective(90, 1, 0.1, 100);
+            frustum.setFromMat4(viewProj);
+
+            const planeData = new Float32Array(24);
+            frustum.getPlaneData(planeData);
+
+            // Each plane has 4 floats (nx, ny, nz, d), 6 planes = 24 floats
+            // Verify normals are normalized (length ~= 1)
+            for (let p = 0; p < 6; p++) {
+                const off = p * 4;
+                const nx = planeData[off], ny = planeData[off + 1], nz = planeData[off + 2];
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                expect(len).to.be.closeTo(1, 0.001);
+            }
+        });
+    });
+
+    describe('cullFrustum', function () {
+
+        function makePerspectivePlanes() {
+            const frustum = new Frustum();
+            const viewProj = new Mat4();
+            viewProj.setPerspective(90, 1, 0.1, 100);
+            frustum.setFromMat4(viewProj);
+            const planeData = new Float32Array(24);
+            frustum.getPlaneData(planeData);
+            return planeData;
+        }
+
+        it('should mark visible a sphere inside the frustum', function () {
+            const store = new CullingStore(16);
+            const slot = store.allocSlot();
+            const off = slot * 4;
+            store.sphereData[off] = 0;
+            store.sphereData[off + 1] = 0;
+            store.sphereData[off + 2] = -5;
+            store.sphereData[off + 3] = 1;
+            store.flagsData[slot] = CULL_VISIBLE | CULL_ENABLED;
+
+            const planeData = makePerspectivePlanes();
+            const results = new Uint8Array(store.capacity);
+            store.cullFrustum(planeData, [slot], results);
+            expect(results[slot]).to.equal(1);
+        });
+
+        it('should not mark visible a sphere outside the frustum', function () {
+            const store = new CullingStore(16);
+            const slot = store.allocSlot();
+            const off = slot * 4;
+            store.sphereData[off] = 0;
+            store.sphereData[off + 1] = 0;
+            store.sphereData[off + 2] = 50;
+            store.sphereData[off + 3] = 1;
+            store.flagsData[slot] = CULL_VISIBLE | CULL_ENABLED;
+
+            const planeData = makePerspectivePlanes();
+            const results = new Uint8Array(store.capacity);
+            store.cullFrustum(planeData, [slot], results);
+            expect(results[slot]).to.equal(0);
+        });
+
+        it('should mark visible when CULL_ENABLED is not set (skip frustum test)', function () {
+            const store = new CullingStore(16);
+            const slot = store.allocSlot();
+            const off = slot * 4;
+            store.sphereData[off] = 0;
+            store.sphereData[off + 1] = 0;
+            store.sphereData[off + 2] = 50;
+            store.sphereData[off + 3] = 1;
+            store.flagsData[slot] = CULL_VISIBLE; // CULL_ENABLED not set
+
+            const planeData = makePerspectivePlanes();
+            const results = new Uint8Array(store.capacity);
+            store.cullFrustum(planeData, [slot], results);
+            expect(results[slot]).to.equal(1);
+        });
+
+        it('should not mark visible when CULL_VISIBLE is not set', function () {
+            const store = new CullingStore(16);
+            const slot = store.allocSlot();
+            const off = slot * 4;
+            store.sphereData[off] = 0;
+            store.sphereData[off + 1] = 0;
+            store.sphereData[off + 2] = -5;
+            store.sphereData[off + 3] = 1;
+            store.flagsData[slot] = CULL_ENABLED; // CULL_VISIBLE not set
+
+            const planeData = makePerspectivePlanes();
+            const results = new Uint8Array(store.capacity);
+            store.cullFrustum(planeData, [slot], results);
+            expect(results[slot]).to.equal(0);
         });
     });
 });

@@ -211,6 +211,47 @@ class CullingStore {
         }
     }
 
+    /**
+     * Test a list of culling slots against frustum planes.
+     *
+     * @param {Float32Array} planeData - Flattened frustum planes (24 floats from Frustum.getPlaneData).
+     * @param {number[]|Int32Array} slots - Array of culling slot indices to test.
+     * @param {Uint8Array} results - Output: results[slot] set to 1 if visible, untouched otherwise.
+     */
+    cullFrustum(planeData, slots, results) {
+        const spheres = this.sphereData;
+        const flags = this.flagsData;
+        const slotCount = slots.length;
+
+        for (let i = 0; i < slotCount; i++) {
+            const slot = slots[i];
+            if (!(flags[slot] & CULL_VISIBLE)) continue;
+
+            if (!(flags[slot] & CULL_ENABLED)) {
+                results[slot] = 1;
+                continue;
+            }
+
+            const off = slot * SPHERE_STRIDE;
+            const cx = spheres[off];
+            const cy = spheres[off + 1];
+            const cz = spheres[off + 2];
+            const r = spheres[off + 3];
+
+            let visible = true;
+            for (let p = 0; p < 24; p += 4) {
+                if (planeData[p] * cx + planeData[p + 1] * cy + planeData[p + 2] * cz + planeData[p + 3] <= -r) {
+                    visible = false;
+                    break;
+                }
+            }
+
+            if (visible) {
+                results[slot] = 1;
+            }
+        }
+    }
+
     /** @private */
     _grow() {
         const newCapacity = this.capacity * 2;

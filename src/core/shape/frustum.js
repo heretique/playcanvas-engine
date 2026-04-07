@@ -136,6 +136,25 @@ class Frustum {
     }
 
     /**
+     * Flatten the 6 frustum planes into a contiguous Float32Array.
+     * Each plane is stored as [nx, ny, nz, d] (4 floats), totalling 24 floats.
+     *
+     * @param {Float32Array} out - A Float32Array of length >= 24 to write into.
+     * @returns {Float32Array} The out array.
+     */
+    getPlaneData(out) {
+        for (let p = 0; p < 6; p++) {
+            const plane = this.planes[p];
+            const off = p * 4;
+            out[off] = plane.normal.x;
+            out[off + 1] = plane.normal.y;
+            out[off + 2] = plane.normal.z;
+            out[off + 3] = plane.distance;
+        }
+        return out;
+    }
+
+    /**
      * Tests whether a bounding sphere intersects the frustum. If the sphere is outside the
      * frustum, zero is returned. If the sphere intersects the frustum, 1 is returned. If the
      * sphere is completely inside the frustum, 2 is returned. Note that a sphere touching a
