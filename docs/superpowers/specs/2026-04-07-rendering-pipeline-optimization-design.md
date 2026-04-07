@@ -1,380 +1,236 @@
-# Rendering Pipeline Optimization Design
+# Rendering Pipeline Optimization Design (Revised)
 
-**Date:** 2026-04-07
+**Date:** 2026-04-07 (revised after Phase A findings)
 **Target:** 2x reduction in `renderComposition` frametime
-**Scope:** Forward rendering hot path, material parameter system, MeshInstance data layout
-**Approach:** Phase A (incremental hot-path fixes) then Phase B (data-oriented render data pipeline)
+**Scope:** Forward rendering hot path, uniform commit system, per-draw-call overhead
 
 ---
 
 ## Problem Statement
 
-Profiling the Hierarchy example in Chrome DevTools shows `AppBase.renderComposition` as the single largest top-level function call. The bottom-up tab identifies three dominant contributors:
+Profiling the production Hierarchy example (~5K draw calls) on Chrome DevTools bottom-up view over ~9.4s:
 
-1. **`Material.setParameters`** — `for...in` iteration over 27-31 parameter objects per material, called per draw call. Each iteration does lazy `scope.resolve()` + `scope.setValue()` with version bumping.
-2. **`WebglGraphicsDevice.commitFunction`** — per-uniform version check + type-dispatched GL call. Called for every dirty uniform across every draw call.
-3. **`StandardMaterial` getters via `definePropInternal`** — 259 properties defined via `Object.defineProperty`. Color getters unconditionally set `_dirtyShader = true` on every access (documented hack in the source).
+| # | Self time | Total time | Activity |
+|---|-----------|------------|----------|
+| 1 | 1,241ms (13.2%) | 6,036ms (64.4%) | renderForwardInternal (loop body overhead) |
+| 2 | 1,008ms (10.8%) | 1,009ms (10.8%) | setParameters (scope.setValue + version increments) |
+| 3 | 681ms (7.3%) | 781ms (8.3%) | commitFunction.\<computed\> (uniform version checks + GL commits) |
+| 4 | 605ms (6.5%) | 605ms (6.5%) | _dirtifyWorldInternal (already optimized on branch) |
+| 5 | 522ms (5.6%) | 789ms (8.4%) | syncHierarchy (already optimized on branch) |
+| 6 | 460ms (4.9%) | 462ms (4.9%) | renderForwardPrepareMaterials (second pass over draw calls) |
+| 7 | 442ms (4.7%) | 444ms (4.7%) | setFromTransformedAabb (already optimized on branch) |
+| 8 | 337ms (3.6%) | 337ms (3.6%) | Object.defineProperty.get (StandardMaterial getters) |
+| 9 | 276ms (2.9%) | 276ms (2.9%) | uniformMatrix3fv (GL normal matrix upload) |
+| 10 | 265ms (2.8%) | 788ms (8.4%) | setupCullModeAndFrontFace (includes worldScaleSign) |
+| 11 | 257ms (2.7%) | 1,785ms (19.0%) | draw (shader/buffer/sampler setup + GL draw) |
+| 12 | 251ms + 232ms | — | equals × 2 (BlendState + DepthState comparison) |
+| 13 | 122ms (1.3%) | 523ms (5.6%) | get worldScaleSign (matrix determinant per draw call) |
 
-### Per-draw-call cost today (simple opaque mesh, same material)
+**`renderForward` total: 6,709ms (71.6% of all profiling time).**
 
-- 3 `scope.setValue` calls (meshInstanceId, model matrix, normal matrix)
-- ~12 device API calls (stencil, cull, vertex buffer, 6 bind group ops, draw)
-- `for...in` on `drawCall.parameters` (usually empty but still has iteration overhead)
-- `setMorphing(device, null)` and `setSkinning(device, null)` called unconditionally
+Items 4, 5, 7 are in syncHierarchy/culling — already optimized on the branch. The remaining rendering overhead is ~5,800ms inside renderForward.
 
-### Per-material-change cost
+### Phase A Lessons Learned
 
-- `material.setParameters(device)`: `for...in` over ~27-31 parameters, each doing `scope.resolve` + `scope.setValue`
-- `device.setShader`, `setBlendState`, `setDepthState`, `setAlphaToCoverage`
-- Light dispatch if light mask changed
+1. **Adding parallel data structures (like `_parameterNames` arrays) caused regressions.** V8 optimizes `for...in` on stable hidden classes. Maintaining a parallel array added overhead that exceeded any iteration benefit.
+2. **Adding per-draw-call bookkeeping (morph/skin flags in prepare phase) costs more than it saves.** The prepare-phase getter calls + array pushes outweighed the render-phase savings from skipping null-check returns.
+3. **The core principle: don't add work to save work — directly remove work.**
 
-### Per-frame cost in `updateUniforms`
+### What survived Phase A (net-zero or positive)
 
-- ~50 conditional blocks in `StandardMaterial.updateUniforms`
-- Color getters trigger `_dirtyShader = true` unconditionally
-- `_processParameters` does Set difference + `delete` on parameter dictionary
+- Color `_version` tracking + getter hack removal (eliminates unnecessary `clearVariants()`)
+- Scope pre-resolution during `updateUniforms` (removes lazy-resolve branch)
+- Cached `meshInstanceIdId` scope (one less Map lookup per draw call)
+- Inlined `setupCullModeAndFrontFace` (one less function call per draw call)
 
 ---
 
-## Design Principles
+## Design Principles (Revised)
 
-1. **Performance first, memory second.** Data layout optimizes for cache efficiency and minimal per-draw-call work. Memory waste is avoided but not at the cost of performance.
-2. **`std140` alignment from day one.** MaterialParameterBlock data is laid out with `std140` padding even before UBO support lands, so the future UBO plan is a drop-in.
-3. **Conservative API, aggressive internals.** MeshInstance and StandardMaterial public APIs remain intact. The rendering pipeline internally switches to SoA data stores.
-4. **Measure each change independently.** Phase A items ship individually with before/after profiling.
+1. **Remove work, don't add bookkeeping.** Every optimization must eliminate operations from the hot path, not add parallel tracking structures.
+2. **Measure before and after each change.** Ship only changes that show measurable improvement on the Hierarchy example.
+3. **Target the biggest items first.** The profiling data gives us a clear priority ordering.
+4. **Preserve API compatibility.** MeshInstance and Material public APIs remain intact.
 
 ---
 
-## Phase A: Hot-Path Fixes
+## Phase B: Rendering Pipeline Overhead Reduction
 
-Targeted fixes to existing code. No structural changes. Each is independently shippable and measurable.
+Ordered by expected impact based on profiling data.
 
-### A1. Replace `for...in` with array-based iteration in `setParameters`
+### B1. Cache `worldScaleSign` during `_sync()` (target: ~500ms)
 
-**Files:** `src/scene/materials/material.js`, `src/scene/mesh-instance.js`
+**Files:** `src/scene/graph-node.js`, `src/core/math/mat4.js`
 
-Both `Material.setParameters` and `MeshInstance.setParameters` use `for (const paramName in obj)`. This is one of the slowest iteration patterns in JS — V8 cannot optimize it, it walks the prototype chain, and produces string keys.
+**Problem:** `worldScaleSign` getter is called per draw call in `setupCullModeAndFrontFace`. For animated nodes, `_worldScaleSign` is reset to 0 every frame (by transform setters), causing a full `scaleSign` recomputation: 3 column extractions + cross product + dot product = ~523ms total for 5K draws.
 
-**Change:** Each material/mesh instance maintains a parallel `_parameterNames: string[]` array alongside the `parameters` dictionary. `setParameters` iterates the array by index:
+**The caching mechanism already exists** — `_worldScaleSign = 0` as dirty sentinel, lazy recompute on getter access. The issue is that transform setters reset it to 0 every frame, so for animated scenes it's recomputed every frame per node.
+
+**Fix:** Compute `scaleSign` inside `_sync()` when the world transform is already being computed. The world matrix is freshly built — compute the sign immediately using a cheaper inline determinant sign (9 multiplies + 5 adds, no function calls, no temp vectors):
 
 ```js
-setParameters(device, names) {
-    const parameters = this.parameters;
-    const keys = names ? names._parameterNames : this._parameterNames;
-    for (let i = 0; i < keys.length; i++) {
-        const parameter = parameters[keys[i]];
-        parameter.scopeId.setValue(parameter.data);
+// In _sync(), after worldTransform is computed:
+const m = this.worldTransform.data;
+const det = m[0] * (m[5] * m[10] - m[6] * m[9]) -
+            m[1] * (m[4] * m[10] - m[6] * m[8]) +
+            m[2] * (m[4] * m[9] - m[5] * m[8]);
+this._worldScaleSign = det < 0 ? -1 : 1;
+```
+
+This eliminates the per-draw-call recomputation entirely — the getter just returns the cached value (already non-zero after sync).
+
+### B2. Eliminate parameter restore overhead (target: ~200ms of the 1,008ms setParameters)
+
+**File:** `src/scene/renderer/forward-renderer.js`
+
+**Problem:** Line 707-708 in `renderForwardInternal`:
+```js
+if (i < preparedCallsCount - 1 && !preparedCalls.isNewMaterial[i + 1]) {
+    material.setParameters(device, drawCall.parameters);
+}
+```
+
+This runs for the majority of draw calls (whenever the next draw call uses the same material). It calls `material.setParameters(device, drawCall.parameters)` which does `for...in` on `drawCall.parameters`. Even for empty parameter objects, `for...in {}` has overhead — V8 still checks the prototype chain.
+
+**Fix:** Skip the call entirely when `drawCall.parameters` has no overrides. Most mesh instances in the Hierarchy example have no per-instance parameter overrides.
+
+```js
+if (i < preparedCallsCount - 1 && !preparedCalls.isNewMaterial[i + 1]) {
+    if (drawCall._hasParameters) {
+        material.setParameters(device, drawCall.parameters);
     }
 }
 ```
 
-The `_parameterNames` array is kept in sync by `setParameter` and `deleteParameter`.
+Add a `_hasParameters` boolean to MeshInstance, set to `true` in `setParameter()`, `false` when parameters become empty. This is a single boolean check vs a `for...in` on an empty object.
 
-### A2. Pre-resolve ScopeIds at parameter set time
+### B3. Reduce uniform version checks in `device.draw()` (target: ~400ms of 781ms commitFunction)
 
-**Files:** `src/scene/materials/material.js`, `src/scene/mesh-instance.js`
+**File:** `src/platform/graphics/webgl/webgl-graphics-device.js`
 
-Currently `scope.resolve(paramName)` happens lazily inside `setParameters` on first use, adding a branch per parameter per draw call.
+**Problem:** Inside `device.draw()`, the uniform commit loop iterates ALL ~50 uniforms for the current shader and version-checks each one (4 property reads + 2 comparisons per uniform). For same-material draws, only 3 per-instance uniforms changed (model matrix, normal matrix, meshInstanceId), but all 50 are checked.
 
-**Change:** Move resolution to `setParameter` time. Requires passing the device (or scope space) at parameter set time. Since materials already have access to the device during `updateUniforms`, this is straightforward:
+**Fix:** Split shader uniforms into two lists: **material-level** and **instance-level**. Track whether material uniforms are dirty. For same-material draws, only iterate instance-level uniforms.
 
+In `WebglShader` (or wherever uniforms are stored after shader finalization):
 ```js
-setParameter(name, data) {
-    let param = this.parameters[name];
-    if (!param) {
-        param = { scopeId: this._device.scope.resolve(name), data: data };
-        this.parameters[name] = param;
-        this._parameterNames.push(name);
-    } else {
-        param.data = data;
-    }
+this.materialUniforms = [];  // uniforms from material setParameters
+this.instanceUniforms = [];  // uniforms from per-instance (matrix_model, matrix_normal, meshInstanceId, bone textures)
+```
+
+In `device.draw()`:
+```js
+// Always commit instance uniforms
+for (let i = 0; i < instanceUniforms.length; i++) { ... }
+
+// Only commit material uniforms when material changed
+if (this._materialUniformsDirty) {
+    for (let i = 0; i < materialUniforms.length; i++) { ... }
+    this._materialUniformsDirty = false;
 }
 ```
 
-### A3. Fix StandardMaterial color getter `_dirtyShader` hack
+Set `_materialUniformsDirty = true` in `device.setShader()` (which is called on material change).
 
-**Files:** `src/scene/materials/standard-material.js`, `src/core/math/color.js`
+The classification can be done at shader link time based on uniform names (prefixed `matrix_`, `meshInstanceId`, `bone` → instance; everything else → material).
 
-The current code (standard-material.js ~line 1046-1052) unconditionally sets `_dirtyShader = true` on every color getter access. This forces shader recompilation checks every frame for any material that reads a color property.
-
-**Change:** Add a `_version` counter to the `Color` class. Increment it on any mutation (`r`, `g`, `b`, `a` setters, `set()`, `copy()`, `lerp()`, etc.). StandardMaterial's color property setters record `_colorVersions[name]` when the property is set. During `updateUniforms`, compare `color._version !== this._colorVersions[name]` to detect actual changes. The getter no longer touches `_dirtyShader`.
-
-### A4. Eliminate dead function calls in inner loop
+### B4. Merge prepare and render passes (target: ~300ms of 462ms renderForwardPrepareMaterials)
 
 **File:** `src/scene/renderer/forward-renderer.js`
 
-`setMorphing(device, null)` and `setSkinning(device, null)` are called for every draw call even when the mesh has no morph or skin data. The null check is inside the function body.
+**Problem:** `renderForwardPrepareMaterials` iterates all draw calls to build 4 parallel arrays (`drawCalls`, `shaderInstances`, `isNewMaterial`, `lightMaskChanged`), then `renderForwardInternal` iterates them again. This is two full iterations over potentially thousands of draw calls, with array pushes in the first pass.
 
-**Change:** Add `FLAG_SKIN` and `FLAG_MORPH` bits to the `_drawCallList` prepared data. Check the bit before calling:
+**Fix:** Merge into a single pass. Handle material/shader setup inline in the render loop:
 
 ```js
-if (flags & FLAG_SKIN) this.setSkinning(device, drawCall);
-if (flags & FLAG_MORPH) this.setMorphing(device, drawCall.morphInstance);
-```
-
-### A5. Inline `setupCullModeAndFrontFace`
-
-**File:** `src/scene/renderer/forward-renderer.js`
-
-Called per draw call, does simple comparisons + two device calls. Inline it into the render loop to eliminate function call overhead.
-
----
-
-## Phase B: Data-Oriented Render Data Pipeline
-
-Structural redesign of how rendering data flows from scene objects to the GPU. Extends the SoA pattern established by CullingStore and TransformStore.
-
-### B1. RenderDataStore
-
-**New file:** `src/scene/render-data-store.js`
-
-A global singleton holding all per-draw-call data in flat typed arrays, indexed by slot. Each MeshInstance gets a `_renderSlot` (analogous to `_cullSlot`).
-
-**Arrays:**
-
-| Array | Type | Purpose |
-|-------|------|---------|
-| `materialSlots` | `Int16Array` (fallback `Int32Array` for >32K materials) | Index into MaterialStore |
-| `meshSlots` | `Int16Array` (fallback `Int32Array`) | Index into mesh table |
-| `nodeSlots` | `Int32Array` | Index into TransformStore (reuse existing) |
-| `shaderSlots` | `Int32Array` | Cached shader variant index |
-| `sortKeysOpaque` | `Uint32Array` | Pre-built forward sort key |
-| `stateFlags` | `Uint32Array` | Packed bit fields (see below) |
-| `skinSlots` | `Int32Array` | Index into skin instance pool (-1 if none) |
-| `morphSlots` | `Int32Array` | Index into morph instance pool (-1 if none) |
-
-**`stateFlags` bit layout (32 bits):**
-
-| Bits | Width | Field |
-|------|-------|-------|
-| 0 | 1 | hasSkin |
-| 1 | 1 | hasMorph |
-| 2 | 1 | hasInstancing |
-| 3 | 1 | hasStencil |
-| 4-5 | 2 | renderStyle (solid/wireframe/points) |
-| 6 | 1 | castShadow |
-| 7 | 1 | receiveShadow |
-| 8-23 | 16 | lightMask |
-| 24-31 | 8 | passFlags |
-
-**Memory management:**
-
-- Freelist-based slot recycling (same pattern as CullingStore).
-- Track high-water mark. Compact when fragmentation exceeds 25%.
-- Pre-allocate to scene capacity estimate, grow by 2x when exhausted.
-- Sort index arrays pre-allocated to capacity and reused frame-to-frame (zero allocation per sort).
-- `Int16Array` used for material/mesh slots when population fits in 16 bits (<32K). Fallback to `Int32Array` for large scenes. Half the cache footprint in the common case.
-
-### B2. MaterialStore and MaterialParameterBlock
-
-**New file:** `src/scene/material-store.js`
-
-A global store where each material gets a slot. The hot rendering data is a pre-built flat `Float32Array` per material — the MaterialParameterBlock.
-
-**MaterialStore arrays:**
-
-| Array | Type | Purpose |
-|-------|------|---------|
-| `parameterBlocks` | `Float32Array[]` | One per material — all uniform values packed |
-| `textureSlots` | `Array<Texture[]>` | Textures per material, ordered by sampler index |
-| `blendStates` | `Uint32Array` | Packed blend state per material |
-| `depthStates` | `Uint8Array` | Packed depth state per material |
-| `shaderVariantKeys` | `Uint32Array` | Hash for shader variant lookup |
-| `dirtyFlags` | `Uint8Array` | Which materials need parameterBlock rebuild |
-
-**MaterialParameterBlock layout (standard PBR, `std140` aligned):**
-
-```
-offset 0:   ambient           (vec3, padded to vec4)
-offset 16:  diffuse           (vec3, padded to vec4)
-offset 32:  specular          (vec3, padded to vec4)
-offset 48:  emissive          (vec3 + emissiveIntensity as .w)
-offset 64:  metalness         (float)
-offset 68:  gloss             (float)
-offset 72:  opacity           (float)
-offset 76:  bumpiness         (float)
-offset 80:  reflectivity      (float)
-offset 84:  refractionIndex   (float)
-offset 88:  aoIntensity       (float)
-offset 92:  alphaTest         (float)
-offset 96:  sheenGloss        (float)
-offset 100: specularityFactor (float)
-offset 104: padding           (2 floats to reach vec4 boundary)
-offset 112: ...texture transforms (vec4-aligned pairs)...
-```
-
-**Key properties:**
-
-- **Sized per material type.** A simple unlit material gets a smaller block than full PBR with clearcoat. No universal worst-case allocation.
-- **`std140` padding from day one.** Even though the initial WebGL2 implementation unpacks into individual `gl.uniform*` calls, the data is already aligned for a future single `bufferSubData` upload.
-- **Rebuilt only when dirty.** The `dirtyFlags` array tracks which materials need their block rebuilt. `updateUniforms` sets the flag; the block is rebuilt once before rendering, not per draw call.
-- **Texture slots ordered by sampler index.** Matches the shader's expected binding order, enabling sequential texture binding without name lookups.
-
-### B3. Revised Forward Renderer Inner Loop
-
-**File:** `src/scene/renderer/forward-renderer.js`
-
-The current `renderForwardInternal` iterates MeshInstance objects with ~12 function calls per draw call. The new loop iterates RenderDataStore slot indices:
-
-```js
-renderForwardInternal(camera, preparedCalls) {
-    const rds = this.renderDataStore;
-    const matStore = this.materialStore;
-    const meshTable = this.meshTable;
-    const indices = preparedCalls.indices;   // sorted slot indices
-    const count = preparedCalls.count;
-
-    let prevMatSlot = -1;
-    let prevMeshSlot = -1;
-
-    for (let i = 0; i < count; i++) {
-        const slot = indices[i];
-        const matSlot = rds.materialSlots[slot];
-        const meshSlot = rds.meshSlots[slot];
-        const flags = rds.stateFlags[slot];
-
-        // Material change — integer comparison, not object reference
-        if (matSlot !== prevMatSlot) {
-            matStore.bind(device, matSlot);  // shader + parameter block + blend/depth
-            prevMatSlot = matSlot;
+renderForwardSinglePass(camera, drawCalls, sortedLights, pass, ...) {
+    let prevMaterial = null, prevObjDefs, prevLightMask;
+    
+    for (let i = 0; i < drawCalls.length; i++) {
+        const drawCall = drawCalls[i];
+        const material = drawCall.material;
+        const isNewMaterial = material !== prevMaterial || drawCall._shaderDefs !== prevObjDefs;
+        
+        if (isNewMaterial) {
+            if (material.dirty) {
+                material.updateUniforms(device, scene);
+                material.dirty = false;
+            }
+            const shaderInstance = drawCall.getShaderInstance(...);
+            device.setShader(shaderInstance.shader);
+            material.setParameters(device);
+            // blend/depth/alpha state...
         }
-
-        // Mesh change — vertex buffer bind
-        if (meshSlot !== prevMeshSlot) {
-            device.setVertexBuffer(meshTable[meshSlot].vertexBuffer);
-            prevMeshSlot = meshSlot;
-        }
-
-        // Per-instance transform (always needed)
-        this.setTransformUniforms(rds.nodeSlots[slot]);
-
-        // Conditional on flags — no function call if bit not set
-        if (flags & FLAG_SKIN) this.setSkinning(rds.skinSlots[slot]);
-        if (flags & FLAG_MORPH) this.setMorphing(rds.morphSlots[slot]);
-        if (flags & FLAG_STENCIL) device.setStencilState(stencilTable[slot]);
-
-        device.draw(meshTable[meshSlot].primitive);
+        
+        // Per-instance work...
+        device.draw(...);
+        
+        prevMaterial = material;
+        prevObjDefs = drawCall._shaderDefs;
+        prevLightMask = drawCall.mask;
     }
 }
 ```
 
-**Key differences from current code:**
+This eliminates: 4 array pushes per draw call in prepare, 4 array reads per draw call in render, the `_drawCallList` clear/allocation, and one full iteration.
 
-- Integer comparisons instead of object identity checks for state change detection.
-- Flat array access instead of `drawCall.material`, `drawCall.mesh` pointer chasing.
-- Bitflag checks instead of function calls with null guards.
-- Material binding is one call that sets the entire parameter block.
-- Sorting happened on the `indices` array (cheap to permute integers).
-- No `for...in` anywhere in the hot path.
+### B5. Reduce inner loop property access overhead (target: ~300ms of 1,241ms loop self time)
 
-### B4. MeshInstance as Facade
+**File:** `src/scene/renderer/forward-renderer.js`
 
-MeshInstance retains its public API. Property setters write through to RenderDataStore:
+**Problem:** The loop body does excessive property chaining per draw call. Each `drawCall.material`, `drawCall.node.worldScaleSign`, `material.frontFace`, etc. is a property read through the object system.
+
+**Fix (incremental):**
+- `drawCall.stencilFront ?? material.stencilFront` / `drawCall.stencilBack ?? material.stencilBack` — for the common case (no stencil), both are null. The nullish coalescing still evaluates both sides. Check `drawCall.stencilFront !== null` first before touching material.
+- Cache `drawCall.node` locally: `const node = drawCall.node;` — avoids repeated property read.
+- The `drawCallback?.(drawCall, i)` optional chain check runs per draw call even when null.
+- `drawCall.getDrawCommands(camera)` does a Map.get per draw call — almost always returns undefined. Add a fast check: `drawCall.drawCommands !== null &&` before the Map.get.
+
+### B6. Faster `scaleSign` on `Mat4` (target: portion of B1)
+
+**File:** `src/core/math/mat4.js`
+
+**Problem:** `Mat4.scaleSign` getter extracts 3 column vectors into temp Vec3s, does cross product + dot. This creates function call overhead and temp object usage.
+
+**Fix:** Inline the determinant sign computation directly from matrix data array:
 
 ```js
-set material(mat) {
-    this._material = mat;
-    renderDataStore.materialSlots[this._renderSlot] = mat._storeSlot;
-    renderDataStore.sortKeysOpaque[this._renderSlot] = this._computeSortKey();
-}
-
-set castShadow(val) {
-    this._castShadow = val;
-    const slot = this._renderSlot;
-    if (val) {
-        renderDataStore.stateFlags[slot] |= FLAG_CAST_SHADOW;
-    } else {
-        renderDataStore.stateFlags[slot] &= ~FLAG_CAST_SHADOW;
-    }
+get scaleSign() {
+    const m = this.data;
+    const cofactor = m[0] * (m[5] * m[10] - m[6] * m[9]) -
+                     m[1] * (m[4] * m[10] - m[6] * m[8]) +
+                     m[2] * (m[4] * m[9] - m[5] * m[8]);
+    return cofactor < 0 ? -1 : 1;
 }
 ```
 
-Users interact with MeshInstance as before. The SoA backing is an internal implementation detail.
-
-### B5. Sorting on flat arrays
-
-**Current:** `Array.sort` with comparator callbacks on MeshInstance arrays. O(n log n) with function call overhead per comparison.
-
-**New:** Radix sort on `Uint32Array` sort keys. O(n), cache-friendly, no comparator callbacks. The sorted output is an index permutation array that the inner loop iterates.
-
-For transparent sorting (distance-based), compute `sortKeysDynamic` as quantized depth packed into `Uint32Array`, then radix sort.
-
-Sort index arrays are pre-allocated and reused frame-to-frame — zero allocation per sort.
-
-### B6. `renderForwardPrepareMaterials` simplification
-
-The current two-pass approach (prepare materials, then render) iterates draw calls twice. With the MaterialStore:
-
-- Material dirty check and `updateUniforms` happen once per dirty material during a pre-render step (not per draw call).
-- Shader variant lookup uses `shaderVariantKeys` from MaterialStore + `shaderDefs` from RenderDataStore.
-- The prepare pass becomes a simple scan of dirty materials, not a per-draw-call loop.
-
-This may allow merging the two passes into one, eliminating the second iteration entirely.
+No function calls, no temp vectors, pure arithmetic. This benefits even if B1 moves the computation to `_sync()`.
 
 ---
 
-## Future: UBO Support on WebGL2 (`std140`)
+## Phase B Summary — Expected Savings
 
-Not part of this plan, but the design anticipates it:
+| Item | Profiled cost | Target savings | Approach |
+|------|--------------|----------------|----------|
+| B1. worldScaleSign caching | 523ms | ~450ms | Compute in _sync(), not per draw call |
+| B2. Parameter restore skip | ~200ms of 1,008ms | ~180ms | Boolean check instead of for...in on empty obj |
+| B3. Split uniform commit | 781ms | ~400ms | Skip material uniforms for same-material draws |
+| B4. Merge passes | 462ms | ~300ms | Single iteration instead of two |
+| B5. Property access reduction | ~300ms of 1,241ms | ~200ms | Local caching, fast paths for common cases |
+| B6. Faster scaleSign | part of B1 | ~50ms | Inline determinant, no temp vectors |
+| **Total** | | **~1,580ms** | **~23% reduction** |
 
-- MaterialParameterBlock is already `std140`-aligned.
-- The `matStore.bind()` call initially iterates a pre-built array of `{ scopeId, offset, type }` descriptors and reads values from the parameter block by offset to call `scopeId.setValue()`. This is faster than `for...in` because the descriptor array is fixed-length, pre-resolved, and the data source is a contiguous `Float32Array`.
-- Future change: `matStore.bind()` does a single `gl.bufferSubData` to upload the block, then `gl.bindBufferRange` to bind it. The descriptor array is no longer needed.
-- Per-instance uniforms (model matrix, normal matrix) similarly move to a per-draw UBO.
-- Expected additional 20-40% frametime reduction on top of Phase B.
-
----
-
-## Testing & Measurement Strategy
-
-### Benchmarking
-
-- **Primary benchmark:** Hierarchy example (stress tests scene hierarchy and draw call count).
-- **Secondary benchmarks:** Typical game scenes with mixed material complexity (unlit, full PBR, transparent).
-- **Metric:** `renderComposition` frametime in ms via `stats.frame.renderTime`.
-- **Target:** 2x reduction on the Hierarchy example.
-
-### Phase A measurement
-
-Each A-item is measured independently with before/after profiling. This validates the analysis and quantifies each fix's contribution.
-
-### Phase B measurement
-
-After structural changes, re-profile with Chrome DevTools bottom-up view to verify that `Material.setParameters`, `commitFunction`, and `definePropInternal` getters are no longer in the top 3. The new hotspots should be `device.draw` and actual GL calls — the bottleneck should shift from JS overhead to GPU work.
-
-### Regression testing
-
-- Run existing engine test suite after each change.
-- Visual regression: render standard test scenes and compare framebuffer output pixel-by-pixel. The SoA refactor must produce identical rendering. Any pixel diff is a bug.
+Combined with Phase A improvements (color getter, scope pre-resolution, cached meshInstanceId) and future UBO support, this gets us closer to 2x. The remaining gap would be closed by:
+- Future: UBO support on WebGL2 (`std140`) — eliminates per-uniform `scope.setValue` + version system entirely
+- Future: GPU-driven rendering on WebGPU — eliminates most CPU per-draw work
 
 ---
 
-## Migration Path
-
-### Phase A: Drop-in
-
-No API changes. Ship as patch releases. Users see faster frames, nothing breaks.
-
-### Phase B: Internal first
-
-1. RenderDataStore and MaterialStore are internal — not exported in the public API.
-2. MeshInstance facade writes through to the stores. Public API unchanged.
-3. ForwardRenderer switches to the new inner loop. Old `renderForwardInternal` removed.
-4. `Material.setParameters(device)` still exists but the forward renderer no longer calls it — it calls `matStore.bind()` instead. The method remains for user code that calls it directly (custom render passes, plugins).
-
-### Future: Expose stores for advanced users
-
-Once the internal API stabilizes, expose `RenderDataStore` and `MaterialStore` as opt-in APIs for users who want to bypass MeshInstance for maximum throughput (particle systems, vegetation, crowd rendering). Not part of this plan.
-
----
-
-## Risk Assessment
+## Risk Assessment (Revised)
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| Phase A insufficient for 2x | High | Phase A is a stepping stone, not the target. Phase B is the structural change. |
-| MeshInstance facade introduces overhead | Medium | Profile the write-through path. Property sets happen at authoring time, not per frame. |
-| Radix sort slower for small N | Low | Fallback to insertion sort below threshold (~64 elements). |
-| MaterialParameterBlock layout diverges from shader | Medium | Generate block layout from shader reflection. Single source of truth. |
-| Memory waste from typed array over-allocation | Low | Freelist recycling + compaction. Monitor fragmentation. |
-| `std140` padding wastes memory for small materials | Low | Block sized per material type. Unlit gets minimal block. Padding is 30-40% overhead but enables future UBO path. |
+| B3 uniform split misclassifies uniforms | Medium | Use naming convention (matrix_*, meshInstanceId, bone* → instance). Validate at shader link time. |
+| B4 merged pass changes render order/behavior | Medium | Regression test with pixel comparison. The merged pass must produce identical results. |
+| B1 scaleSign in _sync() adds overhead to transform sync | Low | Inline determinant is 9 muls + 5 adds — negligible compared to matrix multiply. |
+| Phase A + B combined still short of 2x | Medium | The ~23% from Phase B + future UBO work targets another 20-40%. Combined with reduced sync/culling from existing branch work, 2x is achievable across the full frame. |
