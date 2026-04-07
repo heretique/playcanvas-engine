@@ -650,7 +650,7 @@ class ForwardRenderer extends Renderer {
             drawCall.setParameters(device, passFlag);
 
             // mesh ID - used by the picker
-            device.scope.resolve('meshInstanceId').setValue(drawCall.id);
+            this.meshInstanceIdId.setValue(drawCall.id);
 
             const mesh = drawCall.mesh;
             this.setVertexBuffers(device, mesh);

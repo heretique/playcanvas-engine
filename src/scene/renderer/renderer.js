@@ -230,6 +230,7 @@ class Renderer {
 
         this.modelMatrixId = scope.resolve('matrix_model');
         this.normalMatrixId = scope.resolve('matrix_normal');
+        this.meshInstanceIdId = scope.resolve('meshInstanceId');
         this.viewInvId = scope.resolve('matrix_viewInverse');
         this.viewPos = new Float32Array(3);
         this.viewPosId = scope.resolve('view_position');
