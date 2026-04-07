@@ -41,9 +41,13 @@ class Color {
 
     /**
      * A version counter that increments on every mutation, enabling dirty-checking without proxies
-     * or deep comparison.
+     * or deep comparison. The constructor does not increment this value — `_version = 0` is the
+     * "just constructed" state, so consumers must initialize their baseline to a value that will
+     * not match (e.g. -1). Note that direct property assignment (e.g. `color.r = 0.5`) does not
+     * increment `_version`; only the mutating methods (set, copy, lerp, etc.) do.
      *
      * @type {number}
+     * @ignore
      */
     _version = 0;
 

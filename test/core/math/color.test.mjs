@@ -291,7 +291,7 @@ describe('Color', function () {
             expect(c._version).to.equal(1);
         });
 
-        it('increments exactly once on fromString (via internal set)', function () {
+        it('should increment on fromString', function () {
             const c = new Color();
             c.fromString('#ff0000');
             expect(c._version).to.equal(1);
@@ -302,6 +302,12 @@ describe('Color', function () {
             const v = c._version;
             c.clone();
             expect(c._version).to.equal(v);
+        });
+
+        it('clone should start at version 0', function () {
+            const c = new Color(1, 0, 0);
+            const cloned = c.clone();
+            expect(cloned._version).to.equal(0);
         });
 
         it('increments by 1 on each successive mutation', function () {
