@@ -158,18 +158,18 @@ class CullingStore {
      * @param {object} transformStore - The transform store to read world matrices from.
      * @param {number} currentFrame - The current frame number.
      */
-    updateWorldSpheres(transformStore) {
+    updateWorldSpheres(transformStore, currentFrame) {
         const worldData = transformStore.worldData;
-        const cullSlots = transformStore.cullSlots;
-        const updatedSlots = transformStore._updatedSlots;
-        const updatedCount = transformStore._updatedCount;
+        const lastWorldUpdate = transformStore.lastWorldUpdate;
+        const graphNodeSlots = this.graphNodeSlots;
         const localBounds = this.localBoundsData;
         const spheres = this.sphereData;
+        const maxSlot = this._nextSlot;
 
-        for (let i = 0; i < updatedCount; i++) {
-            const nodeSlot = updatedSlots[i];
-            const slot = cullSlots[nodeSlot];
-            if (slot === 0xFFFFFFFF) continue; // no culling slot for this node
+        for (let slot = 0; slot < maxSlot; slot++) {
+            const nodeSlot = graphNodeSlots[slot];
+            if (nodeSlot < 0) continue; // freed slot
+            if (lastWorldUpdate[nodeSlot] !== currentFrame) continue; // not updated this frame
 
             const lb = slot * SPHERE_STRIDE;
             const lcx = localBounds[lb];

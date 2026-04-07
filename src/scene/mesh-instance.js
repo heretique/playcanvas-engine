@@ -17,7 +17,6 @@ import {
 } from './constants.js';
 import { GraphNode } from './graph-node.js';
 import { cullingStore, CULL_VISIBLE, CULL_ENABLED, CULL_TRANSPARENT, CULL_CUSTOM } from './culling-store.js';
-import { transformStore, NO_CULL_SLOT } from './transform-store.js';
 import { getDefaultMaterial } from './materials/default-material.js';
 import { LightmapCache } from './graphics/lightmap-cache.js';
 import { DebugGraphics } from '../platform/graphics/debug-graphics.js';
@@ -563,7 +562,6 @@ class MeshInstance {
         cullingStore.meshInstances[this._cullSlot] = this;
         if (this.node) {
             cullingStore.graphNodeSlots[this._cullSlot] = this.node._slot;
-            transformStore.cullSlots[this.node._slot] = this._cullSlot;
         }
         this._updateCullStoreFlags();
         this._updateCullStoreLocalBounds();
@@ -1064,9 +1062,6 @@ class MeshInstance {
 
         // Free culling store slot
         if (this._cullSlot >= 0) {
-            if (this.node) {
-                transformStore.cullSlots[this.node._slot] = NO_CULL_SLOT;
-            }
             cullingStore.freeSlot(this._cullSlot);
             this._cullSlot = -1;
         }

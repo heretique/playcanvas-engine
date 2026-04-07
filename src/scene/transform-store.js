@@ -27,8 +27,6 @@ const SCALE_COMP  = 0x04;
 const ENABLED     = 0x08;
 const CUSTOM_SYNC = 0x10;
 
-const NO_CULL_SLOT = 0xFFFFFFFF;
-
 // Pre-allocated scratch space (module scope, reused, zero GC)
 const _tempLocal = new Float32Array(16);
 const _tempScale = new Float32Array(3);
@@ -118,9 +116,6 @@ class TransformStore {
     /** @type {Array<object|null>} */
     nodeRefs;
 
-    /** @type {Uint32Array} - graph node slot -> culling slot (0xFFFFFFFF if none) */
-    cullSlots;
-
     /** @type {Int32Array} - Pre-allocated buffer for slots updated during propagate() */
     _updatedSlots;
 
@@ -156,7 +151,6 @@ class TransformStore {
         this.topoOrder = new Int32Array(initialCapacity);
         this._updatedSlots = new Int32Array(initialCapacity);
         this.nodeRefs = new Array(initialCapacity).fill(null);
-        this.cullSlots = new Uint32Array(initialCapacity).fill(0xFFFFFFFF);
 
         // Initialize identity transforms for all slots
         for (let i = 0; i < initialCapacity; i++) {
@@ -593,10 +587,6 @@ class TransformStore {
         this.lastWorldUpdate = growUint32(this.lastWorldUpdate, newCap);
         this.lastInvUpdate = growUint32(this.lastInvUpdate, newCap);
 
-        const oldCullSlots = this.cullSlots;
-        this.cullSlots = new Uint32Array(newCap).fill(0xFFFFFFFF);
-        this.cullSlots.set(oldCullSlots);
-
         this.topoOrder = growInt32(this.topoOrder, newCap, 0);
         this._updatedSlots = growInt32(this._updatedSlots, newCap, 0);
 
@@ -635,4 +625,4 @@ class TransformStore {
  */
 const transformStore = new TransformStore(4096);
 
-export { TransformStore, transformStore, LOCAL_STRIDE, WORLD_STRIDE, DIRTY_LOCAL, DIRTY_WORLD, SCALE_COMP, ENABLED, CUSTOM_SYNC, NO_CULL_SLOT };
+export { TransformStore, transformStore, LOCAL_STRIDE, WORLD_STRIDE, DIRTY_LOCAL, DIRTY_WORLD, SCALE_COMP, ENABLED, CUSTOM_SYNC };
