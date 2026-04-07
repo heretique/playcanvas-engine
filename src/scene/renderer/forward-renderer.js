@@ -39,16 +39,12 @@ const _drawCallList = {
     shaderInstances: [],
     isNewMaterial: [],
     lightMaskChanged: [],
-    hasMorph: [],
-    hasSkin: [],
 
     clear: function () {
         this.drawCalls.length = 0;
         this.shaderInstances.length = 0;
         this.isNewMaterial.length = 0;
         this.lightMaskChanged.length = 0;
-        this.hasMorph.length = 0;
-        this.hasSkin.length = 0;
     }
 };
 
@@ -506,8 +502,6 @@ class ForwardRenderer extends Renderer {
             _drawCallList.shaderInstances.push(shaderInstance);
             _drawCallList.isNewMaterial.push(isNewMaterial);
             _drawCallList.lightMaskChanged.push(lightMaskChanged);
-            _drawCallList.hasMorph.push(drawCall.morphInstance !== null);
-            _drawCallList.hasSkin.push(drawCall.skinInstance !== null);
         };
 
         // start with empty arrays
@@ -655,13 +649,8 @@ class ForwardRenderer extends Renderer {
             const mesh = drawCall.mesh;
             this.setVertexBuffers(device, mesh);
 
-            if (preparedCalls.hasMorph[i]) {
-                this.setMorphing(device, drawCall.morphInstance);
-            }
-
-            if (preparedCalls.hasSkin[i]) {
-                this.setSkinning(device, drawCall);
-            }
+            this.setMorphing(device, drawCall.morphInstance);
+            this.setSkinning(device, drawCall);
 
             const instancingData = drawCall.instancingData;
             if (instancingData) {
