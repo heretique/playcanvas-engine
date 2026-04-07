@@ -1756,7 +1756,7 @@ static findNode(node, test) {
 
     // Update world-space bounding spheres for all mesh instances
     // whose graph node transforms changed this frame.
-    cullingStore.updateWorldSpheres(transformStore, transformStore.currentFrame);
+    cullingStore.updateWorldSpheres(transformStore);
   }
 
   /**

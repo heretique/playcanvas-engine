@@ -84,9 +84,10 @@ describe('CullingStore', function () {
             // Allocate a culling slot linked to that node
             const cullSlot = cs.allocSlot();
             cs.graphNodeSlots[cullSlot] = nodeSlot;
+            ts.cullSlots[nodeSlot] = cullSlot; // reverse mapping
             cs.setLocalBounds(cullSlot, 0, 0, 0, 1.0); // unit sphere at origin
 
-            cs.updateWorldSpheres(ts, ts.currentFrame);
+            cs.updateWorldSpheres(ts);
 
             const off = cullSlot * 4;
             expect(cs.sphereData[off]).to.be.closeTo(10, 0.001);     // cx translated
@@ -107,9 +108,10 @@ describe('CullingStore', function () {
 
             const cullSlot = cs.allocSlot();
             cs.graphNodeSlots[cullSlot] = nodeSlot;
+            ts.cullSlots[nodeSlot] = cullSlot;
             cs.setLocalBounds(cullSlot, 0, 0, 0, 1.0);
 
-            cs.updateWorldSpheres(ts, ts.currentFrame);
+            cs.updateWorldSpheres(ts);
 
             const off = cullSlot * 4;
             expect(cs.sphereData[off + 3]).to.be.closeTo(3, 0.001); // radius scaled by max axis
@@ -122,21 +124,22 @@ describe('CullingStore', function () {
             const nodeSlot = ts.allocSlot();
             ts.setLocalPosition(nodeSlot, 5, 0, 0);
             ts.parentSlot[nodeSlot] = -1;
-            ts.propagate(); // frame 1
+            ts.propagate(); // updates _updatedSlots
 
             const cullSlot = cs.allocSlot();
             cs.graphNodeSlots[cullSlot] = nodeSlot;
+            ts.cullSlots[nodeSlot] = cullSlot;
             cs.setLocalBounds(cullSlot, 0, 0, 0, 1.0);
-            cs.updateWorldSpheres(ts, ts.currentFrame);
+            cs.updateWorldSpheres(ts);
 
             // Manually overwrite sphere to detect if it gets re-updated
             cs.sphereData[cullSlot * 4] = 999;
 
-            // Advance frame without modifying the node
-            ts.currentFrame++;
-            cs.updateWorldSpheres(ts, ts.currentFrame);
+            // Propagate again without modifying — _updatedCount should be 0
+            ts.propagate();
+            cs.updateWorldSpheres(ts);
 
-            // Should NOT have been updated (no transform change this frame)
+            // Should NOT have been updated (no transform change)
             expect(cs.sphereData[cullSlot * 4]).to.equal(999);
         });
     });
