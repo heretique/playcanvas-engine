@@ -16,7 +16,7 @@ import { Renderer } from './renderer.js';
 import { LightCamera } from './light-camera.js';
 import { RenderPassForward } from './render-pass-forward.js';
 import { FramePassPostprocessing } from './frame-pass-postprocessing.js';
-import { BINDGROUP_VIEW } from '../../platform/graphics/constants.js';
+import { BINDGROUP_VIEW, FRONTFACE_CCW, FRONTFACE_CW, CULLFACE_NONE } from '../../platform/graphics/constants.js';
 
 /**
  * @import { BindGroup } from '../../platform/graphics/bind-group.js'
@@ -39,12 +39,16 @@ const _drawCallList = {
     shaderInstances: [],
     isNewMaterial: [],
     lightMaskChanged: [],
+    hasMorph: [],
+    hasSkin: [],
 
     clear: function () {
         this.drawCalls.length = 0;
         this.shaderInstances.length = 0;
         this.isNewMaterial.length = 0;
         this.lightMaskChanged.length = 0;
+        this.hasMorph.length = 0;
+        this.hasSkin.length = 0;
     }
 };
 
@@ -502,6 +506,8 @@ class ForwardRenderer extends Renderer {
             _drawCallList.shaderInstances.push(shaderInstance);
             _drawCallList.isNewMaterial.push(isNewMaterial);
             _drawCallList.lightMaskChanged.push(lightMaskChanged);
+            _drawCallList.hasMorph.push(drawCall.morphInstance !== null);
+            _drawCallList.hasSkin.push(drawCall.skinInstance !== null);
         };
 
         // start with empty arrays
@@ -625,7 +631,16 @@ class ForwardRenderer extends Renderer {
 
             DebugGraphics.pushGpuMarker(device, `Node: ${drawCall.node.name}, Material: ${material.name}`);
 
-            this.setupCullModeAndFrontFace(camera._cullFaces, flipFactor, drawCall);
+            // Inlined cull mode and front face setup
+            {
+                const flipFaces = flipFactor * drawCall.flipFacesFactor * drawCall.node.worldScaleSign;
+                let frontFace = material.frontFace;
+                if (flipFaces < 0) {
+                    frontFace = frontFace === FRONTFACE_CCW ? FRONTFACE_CW : FRONTFACE_CCW;
+                }
+                device.setCullMode(camera._cullFaces ? material.cull : CULLFACE_NONE);
+                device.setFrontFace(frontFace);
+            }
 
             const stencilFront = drawCall.stencilFront ?? material.stencilFront;
             const stencilBack = drawCall.stencilBack ?? material.stencilBack;
@@ -639,8 +654,14 @@ class ForwardRenderer extends Renderer {
 
             const mesh = drawCall.mesh;
             this.setVertexBuffers(device, mesh);
-            this.setMorphing(device, drawCall.morphInstance);
-            this.setSkinning(device, drawCall);
+
+            if (preparedCalls.hasMorph[i]) {
+                this.setMorphing(device, drawCall.morphInstance);
+            }
+
+            if (preparedCalls.hasSkin[i]) {
+                this.setSkinning(device, drawCall);
+            }
 
             const instancingData = drawCall.instancingData;
             if (instancingData) {
