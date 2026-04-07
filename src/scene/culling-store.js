@@ -271,4 +271,7 @@ class CullingStore {
     }
 }
 
-export { CullingStore, CULL_VISIBLE, CULL_ENABLED, CULL_TRANSPARENT, CULL_CUSTOM, SPHERE_STRIDE };
+/** Global singleton CullingStore instance. */
+const cullingStore = new CullingStore();
+
+export { CullingStore, cullingStore, CULL_VISIBLE, CULL_ENABLED, CULL_TRANSPARENT, CULL_CUSTOM, SPHERE_STRIDE };

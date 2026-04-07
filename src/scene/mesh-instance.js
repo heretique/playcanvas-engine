@@ -16,6 +16,7 @@ import {
     SHADOW_CASCADE_ALL
 } from './constants.js';
 import { GraphNode } from './graph-node.js';
+import { cullingStore, CULL_VISIBLE, CULL_ENABLED, CULL_TRANSPARENT, CULL_CUSTOM } from './culling-store.js';
 import { getDefaultMaterial } from './materials/default-material.js';
 import { LightmapCache } from './graphics/lightmap-cache.js';
 import { DebugGraphics } from '../platform/graphics/debug-graphics.js';
@@ -290,6 +291,9 @@ class MeshInstance {
      */
     node;
 
+    /** @private */
+    _visible = true;
+
     /**
      * Enable rendering for this mesh instance. Use visible property to enable/disable rendering
      * without overhead of removing from scene. But note that the mesh instance is still in the
@@ -297,7 +301,16 @@ class MeshInstance {
      *
      * @type {boolean}
      */
-    visible = true;
+    set visible(val) {
+        if (this._visible !== val) {
+            this._visible = val;
+            this._updateCullStoreFlags();
+        }
+    }
+
+    get visible() {
+        return this._visible;
+    }
 
     /**
      * Read this value in {@link Scene.EVENT_POSTCULL} event to determine if the object is actually going
@@ -421,6 +434,14 @@ class MeshInstance {
     _updateAabbFunc = null;
 
     /**
+     * Slot index in the global CullingStore.
+     *
+     * @type {number}
+     * @private
+     */
+    _cullSlot = -1;
+
+    /**
      * The internal sorting key used by the shadow renderer.
      *
      * @ignore
@@ -535,6 +556,15 @@ class MeshInstance {
 
         // 64-bit integer key that defines render order of this mesh instance
         this.updateKey();
+
+        // Allocate culling store slot
+        this._cullSlot = cullingStore.allocSlot();
+        cullingStore.meshInstances[this._cullSlot] = this;
+        if (this.node) {
+            cullingStore.graphNodeSlots[this._cullSlot] = this.node._slot;
+        }
+        this._updateCullStoreFlags();
+        this._updateCullStoreLocalBounds();
     }
 
     /**
@@ -610,6 +640,8 @@ class MeshInstance {
         if (mesh) {
             mesh.incRefCount();
         }
+
+        this._updateCullStoreLocalBounds();
     }
 
     /**
@@ -1014,6 +1046,12 @@ class MeshInstance {
 
     destroy() {
 
+        // Free culling store slot
+        if (this._cullSlot >= 0) {
+            cullingStore.freeSlot(this._cullSlot);
+            this._cullSlot = -1;
+        }
+
         const mesh = this.mesh;
         if (mesh) {
 
@@ -1410,6 +1448,53 @@ class MeshInstance {
     }
 
     /**
+     * Sync visibility/cull/transparent flags to the CullingStore.
+     *
+     * @private
+     */
+    _updateCullStoreFlags() {
+        if (this._cullSlot < 0) return;
+        let f = 0;
+        if (this.visible) f |= CULL_VISIBLE;
+        if (this.cull) f |= CULL_ENABLED;
+        if (this.transparent) f |= CULL_TRANSPARENT;
+        if (this.isVisibleFunc || this._updateAabbFunc) f |= CULL_CUSTOM;
+        cullingStore.flagsData[this._cullSlot] = f;
+    }
+
+    /**
+     * Recompute local-space bounding sphere and write to the CullingStore.
+     *
+     * @private
+     */
+    _updateCullStoreLocalBounds() {
+        if (this._cullSlot < 0) return;
+        if (!this._mesh) return;
+
+        let localAabb;
+        if (this._customAabb) {
+            localAabb = this._customAabb;
+        } else {
+            localAabb = this._mesh.aabb;
+            // Expand by morph bounds if applicable
+            if (this._mesh.morph) {
+                _tmpAabb.center.copy(localAabb.center);
+                _tmpAabb.halfExtents.copy(localAabb.halfExtents);
+                const morphAabb = this._mesh.morph.aabb;
+                _tmpAabb._expand(morphAabb.getMin(), morphAabb.getMax());
+                localAabb = _tmpAabb;
+            }
+        }
+
+        const cx = localAabb.center.x;
+        const cy = localAabb.center.y;
+        const cz = localAabb.center.z;
+        const he = localAabb.halfExtents;
+        const radius = Math.sqrt(he.x * he.x + he.y * he.y + he.z * he.z);
+        cullingStore.setLocalBounds(this._cullSlot, cx, cy, cz, radius);
+    }
+
+    /**
      * @param {BoundingBox|null} aabb - The custom axis-aligned bounding box or null to reset to
      * the mesh's bounding box.
      * @ignore
@@ -1429,6 +1514,7 @@ class MeshInstance {
         }
 
         this._setupSkinUpdate();
+        this._updateCullStoreLocalBounds();
     }
 
     /** @private */
