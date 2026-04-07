@@ -660,6 +660,20 @@ class MeshInstance {
      */
     set aabb(aabb) {
         this._aabb = aabb;
+        // When AABB is set externally (e.g. batchers, particle emitters),
+        // update the world-space sphere in the culling store
+        if (this._cullSlot >= 0) {
+            const cx = aabb.center.x;
+            const cy = aabb.center.y;
+            const cz = aabb.center.z;
+            const he = aabb.halfExtents;
+            const r = Math.sqrt(he.x * he.x + he.y * he.y + he.z * he.z);
+            const off = this._cullSlot * 4;
+            cullingStore.sphereData[off] = cx;
+            cullingStore.sphereData[off + 1] = cy;
+            cullingStore.sphereData[off + 2] = cz;
+            cullingStore.sphereData[off + 3] = r;
+        }
     }
 
     /**
