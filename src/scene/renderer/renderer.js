@@ -9,6 +9,7 @@ import { Mat4 } from '../../core/math/mat4.js';
 import { BoundingSphere } from '../../core/shape/bounding-sphere.js';
 import { Frustum } from '../../core/shape/frustum.js';
 import { cullingStore, CULL_VISIBLE, CULL_TRANSPARENT } from '../culling-store.js';
+import { transformStore } from '../transform-store.js';
 import {
     CLEARFLAG_COLOR, CLEARFLAG_DEPTH, CLEARFLAG_STENCIL,
     BINDGROUP_MESH, BINDGROUP_VIEW, UNIFORM_BUFFER_DEFAULT_SLOT_NAME,
@@ -1132,6 +1133,10 @@ class Renderer {
         const { scene } = this;
 
         this.processingMeshInstances.clear();
+
+        // Update world-space bounding spheres for mesh instances
+        // whose transforms changed this frame
+        cullingStore.updateWorldSpheres(transformStore, transformStore.currentFrame);
 
         // for all cameras
         const numCameras = comp.cameras.length;
