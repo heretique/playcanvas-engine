@@ -1,14 +1,16 @@
+import { Debug } from '../../core/debug.js';
 import {
     PIXELFORMAT_R32U, PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA16U,
     PIXELFORMAT_RGBA32U, PIXELFORMAT_RG32U
 } from '../../platform/graphics/constants.js';
-import { Debug } from '../../core/debug.js';
 import { ShaderMaterial } from '../materials/shader-material.js';
 import { GSplatFormat } from '../gsplat/gsplat-format.js';
 import {
     GSPLATDATA_COMPACT,
     GSPLAT_RENDERER_AUTO, GSPLAT_RENDERER_RASTER_CPU_SORT,
-    GSPLAT_RENDERER_RASTER_GPU_SORT, GSPLAT_RENDERER_COMPUTE
+    GSPLAT_RENDERER_RASTER_GPU_SORT, GSPLAT_RENDERER_COMPUTE,
+    GSPLAT_DEBUG_NONE, GSPLAT_DEBUG_LOD, GSPLAT_DEBUG_SH_UPDATE, GSPLAT_DEBUG_HEATMAP,
+    GSPLAT_DEBUG_AABBS, GSPLAT_DEBUG_NODE_AABBS
 } from '../constants.js';
 
 import glslCompactRead from '../shader-lib/glsl/chunks/gsplat/vert/formats/containerCompactRead.js';
@@ -117,20 +119,11 @@ class GSplatParams {
     }
 
     /**
-     * Enables debug rendering of AABBs for GSplat objects. Defaults to false.
-     *
-     * @type {boolean}
-     */
-    debugAabbs = false;
-
-    /**
      * Enables radial sorting based on distance from camera (for cubemap rendering). When false,
      * uses directional sorting along camera forward vector. Defaults to false.
      *
      * Note: Radial sorting helps reduce sorting artifacts when the camera rotates (looks around),
      * while linear sorting is better at minimizing artifacts when the camera translates (moves).
-     *
-     * @type {boolean}
      */
     radialSorting = false;
 
@@ -147,7 +140,7 @@ class GSplatParams {
     _currentRenderer = GSPLAT_RENDERER_RASTER_CPU_SORT;
 
     /**
-     * The rendering pipeline used for gaussian splatting. Can be:
+     * Sets the rendering pipeline used for gaussian splatting. Can be:
      *
      * - {@link GSPLAT_RENDERER_AUTO}: Automatically selects the best pipeline for the platform.
      * - {@link GSPLAT_RENDERER_RASTER_CPU_SORT}: Rasterization with CPU-side sorting.
@@ -156,7 +149,8 @@ class GSplatParams {
      * - {@link GSPLAT_RENDERER_COMPUTE}: Full compute pipeline (WebGPU only, experimental).
      *
      * Defaults to {@link GSPLAT_RENDERER_AUTO}. Modes requiring WebGPU fall back to
-     * {@link GSPLAT_RENDERER_RASTER_CPU_SORT} on WebGL devices.
+     * {@link GSPLAT_RENDERER_RASTER_CPU_SORT} on WebGL devices. The resolved mode actually used
+     * can be queried via {@link currentRenderer}.
      *
      * @type {number}
      */
@@ -168,7 +162,6 @@ class GSplatParams {
                 this._currentRenderer = GSPLAT_RENDERER_RASTER_CPU_SORT;
             } else if ((value === GSPLAT_RENDERER_RASTER_GPU_SORT || value === GSPLAT_RENDERER_COMPUTE) &&
                 !this._device.isWebGPU) {
-                Debug.warnOnce(`GSplatParams: renderer mode ${value} requires WebGPU, falling back to GSPLAT_RENDERER_RASTER_CPU_SORT.`);
                 this._currentRenderer = GSPLAT_RENDERER_RASTER_CPU_SORT;
             } else {
                 this._currentRenderer = value;
@@ -176,6 +169,12 @@ class GSplatParams {
         }
     }
 
+    /**
+     * Gets the requested rendering pipeline for gaussian splatting. This may differ from
+     * {@link currentRenderer} when a WebGPU mode falls back on a WebGL device.
+     *
+     * @type {number}
+     */
     get renderer() {
         return this._renderer;
     }
@@ -192,52 +191,114 @@ class GSplatParams {
     }
 
     /**
-     * Enables debug rendering of AABBs for GSplat octree nodes. Defaults to false.
-     *
-     * @type {boolean}
-     */
-    debugNodeAabbs = false;
-
-    /**
      * Internal dirty flag to trigger update of gsplat managers when some params change.
      *
      * @ignore
-     * @type {boolean}
      */
     dirty = false;
 
     /**
-     * @type {boolean}
+     * @type {number}
      * @private
      */
-    _colorizeLod = false;
+    _debug = GSPLAT_DEBUG_NONE;
 
     /**
-     * Enables colorization by selected LOD level when rendering GSplat objects. Defaults to false.
-     * Marks params dirty on change.
+     * Sets the debug rendering mode for Gaussian splats. Can be:
      *
-     * @type {boolean}
+     * - {@link GSPLAT_DEBUG_NONE}: Normal rendering (default).
+     * - {@link GSPLAT_DEBUG_LOD}: Colorize splats by their selected LOD level.
+     * - {@link GSPLAT_DEBUG_SH_UPDATE}: Random color per SH update pass to visualize update
+     * frequency.
+     * - {@link GSPLAT_DEBUG_HEATMAP}: Heatmap visualization of average splats processed per
+     * pixel in each tile. Only supported with {@link GSPLAT_RENDERER_COMPUTE}.
+     * - {@link GSPLAT_DEBUG_AABBS}: Draw world-space AABBs for each GSplat, colorized by LOD.
+     * - {@link GSPLAT_DEBUG_NODE_AABBS}: Draw world-space AABBs for each octree node of
+     * streamed GSplats, colorized by the currently selected LOD.
+     *
+     * Only one debug mode can be active at a time. Defaults to {@link GSPLAT_DEBUG_NONE}.
+     *
+     * @type {number}
      */
-    set colorizeLod(value) {
-        if (this._colorizeLod !== value) {
-            this._colorizeLod = value;
-            this.dirty = true;
+    set debug(value) {
+        if (this._debug !== value) {
+            const prev = this._debug;
+            this._debug = value;
+
+            if (value === GSPLAT_DEBUG_LOD || prev === GSPLAT_DEBUG_LOD ||
+                value === GSPLAT_DEBUG_HEATMAP || prev === GSPLAT_DEBUG_HEATMAP) {
+                this.dirty = true;
+            }
         }
     }
 
     /**
-     * Gets colorize-by-LOD flag.
+     * Gets the debug rendering mode for Gaussian splats.
      *
-     * @returns {boolean} Current enabled state.
+     * @type {number}
      */
-    get colorizeLod() {
-        return this._colorizeLod;
+    get debug() {
+        return this._debug;
     }
 
     /**
      * @type {boolean}
-     * @private
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_LOD} instead.
+     * @ignore
      */
+    set colorizeLod(value) {
+        Debug.deprecated('GSplatParams#colorizeLod is deprecated. Use GSplatParams#debug = GSPLAT_DEBUG_LOD instead.');
+        this.debug = value ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
+    }
+
+    /**
+     * @type {boolean}
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_LOD} instead.
+     * @ignore
+     */
+    get colorizeLod() {
+        return this._debug === GSPLAT_DEBUG_LOD;
+    }
+
+    /**
+     * @type {boolean}
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_AABBS} instead.
+     * @ignore
+     */
+    set debugAabbs(value) {
+        Debug.deprecated('GSplatParams#debugAabbs is deprecated. Use GSplatParams#debug = GSPLAT_DEBUG_AABBS instead.');
+        this.debug = value ? GSPLAT_DEBUG_AABBS : GSPLAT_DEBUG_NONE;
+    }
+
+    /**
+     * @type {boolean}
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_AABBS} instead.
+     * @ignore
+     */
+    get debugAabbs() {
+        return this._debug === GSPLAT_DEBUG_AABBS;
+    }
+
+    /**
+     * @type {boolean}
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_NODE_AABBS} instead.
+     * @ignore
+     */
+    set debugNodeAabbs(value) {
+        Debug.deprecated('GSplatParams#debugNodeAabbs is deprecated. Use GSplatParams#debug = GSPLAT_DEBUG_NODE_AABBS instead.');
+        this.debug = value ? GSPLAT_DEBUG_NODE_AABBS : GSPLAT_DEBUG_NONE;
+    }
+
+    /**
+     * @type {boolean}
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_NODE_AABBS} instead.
+     * @ignore
+     */
+    get debugNodeAabbs() {
+        return this._debug === GSPLAT_DEBUG_NODE_AABBS;
+    }
+
+    /** @private */
     _enableIds = false;
 
     /**
@@ -274,23 +335,16 @@ class GSplatParams {
     /**
      * Distance threshold in world units to trigger LOD updates for camera and gsplat instances.
      * Defaults to 1.
-     *
-     * @type {number}
      */
     lodUpdateDistance = 1;
 
     /**
      * Angle threshold in degrees to trigger LOD updates based on camera rotation. Set to 0 to
      * disable rotation-based updates. Defaults to 0.
-     *
-     * @type {number}
      */
     lodUpdateAngle = 0;
 
-    /**
-     * @type {number}
-     * @private
-     */
+    /** @private */
     _lodBehindPenalty = 1;
 
     /**
@@ -298,8 +352,7 @@ class GSplatParams {
      * Value 1 means no penalty; higher values drop LOD faster for nodes behind the camera.
      *
      * Note: when using a penalty > 1, it often makes sense to set a positive
-     * {@link GSplatParams#lodUpdateAngle} so LOD is re-evaluated on camera rotation,
-     * not just translation.
+     * {@link lodUpdateAngle} so LOD is re-evaluated on camera rotation, not just translation.
      *
      * @type {number}
      */
@@ -319,10 +372,7 @@ class GSplatParams {
         return this._lodBehindPenalty;
     }
 
-    /**
-     * @type {number}
-     * @private
-     */
+    /** @private */
     _lodRangeMin = 0;
 
     /**
@@ -346,10 +396,7 @@ class GSplatParams {
         return this._lodRangeMin;
     }
 
-    /**
-     * @type {number}
-     * @private
-     */
+    /** @private */
     _lodRangeMax = 10;
 
     /**
@@ -373,10 +420,7 @@ class GSplatParams {
         return this._lodRangeMax;
     }
 
-    /**
-     * @type {number}
-     * @private
-     */
+    /** @private */
     _lodUnderfillLimit = 0;
 
     /**
@@ -403,10 +447,7 @@ class GSplatParams {
         return this._lodUnderfillLimit;
     }
 
-    /**
-     * @type {number}
-     * @private
-     */
+    /** @private */
     _splatBudget = 0;
 
     /**
@@ -466,59 +507,70 @@ class GSplatParams {
      * Intensity multiplier for overdraw visualization mode. Value of 1 uses alpha of 1/32,
      * allowing approximately 32 overdraws to reach full brightness with additive blending.
      * Higher values increase brightness per splat. Defaults to 1.
-     *
-     * @type {number}
      */
     colorRampIntensity = 1;
 
     /**
-     * Enables debug colorization to visualize when spherical harmonics are evaluated.
-     * When true, each update pass renders with a random color to visualize the behavior
-     * of colorUpdateDistance and colorUpdateAngle thresholds. Defaults to false.
-     *
-     * @type {boolean}
+     * Whether to apply scene fog to Gaussian splats. When false, splats ignore fog settings
+     * even if the scene or camera has fog configured. Defaults to true.
      */
-    colorizeColorUpdate = false;
+    useFog = true;
+
+    /** @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_SH_UPDATE} instead. */
+    set colorizeColorUpdate(value) {
+        Debug.deprecated('GSplatParams#colorizeColorUpdate is deprecated. Use GSplatParams#debug = GSPLAT_DEBUG_SH_UPDATE instead.');
+        this.debug = value ? GSPLAT_DEBUG_SH_UPDATE : GSPLAT_DEBUG_NONE;
+    }
 
     /**
-     * Distance threshold in world units for triggering spherical harmonics color updates.
-     * Used to control how often SH evaluation occurs based on camera translation.
-     * Only affects resources with spherical harmonics data. Set to 0 to update on
-     * every frame where camera moves. Defaults to 0.2.
-     *
-     * @type {number}
+     * @deprecated Use {@link debug} with {@link GSPLAT_DEBUG_SH_UPDATE} instead.
+     * @returns {boolean} Whether SH update colorization is enabled.
      */
-    colorUpdateDistance = 0.2;
+    get colorizeColorUpdate() {
+        return this._debug === GSPLAT_DEBUG_SH_UPDATE;
+    }
 
     /**
-     * Angle threshold in degrees for triggering spherical harmonics color updates.
-     * Used to control how often SH evaluation occurs based on camera rotation.
-     * Only affects resources with spherical harmonics data. Set to 0 to update on
-     * every frame where camera rotates. Defaults to 2.
-     *
-     * @type {number}
+     * Viewing angle threshold in degrees for triggering spherical harmonics color updates.
+     * When the camera translates enough to change the viewing angle to an octree node or
+     * splat by this amount, its SH colors are re-evaluated. Distant nodes naturally update
+     * less frequently since they require more camera movement to reach the angle threshold.
+     * Set to 0 to update every frame where camera moves. Defaults to 10.
      */
-    colorUpdateAngle = 2;
+    colorUpdateAngle = 10;
 
-    /**
-     * Scale factor applied to colorUpdateDistance for each LOD level.
-     * Each LOD level multiplies the threshold by this value raised to the power of lodIndex.
-     * For example, with scale=2: LOD 0 uses 1x threshold, LOD 1 uses 2x, LOD 2 uses 4x.
-     * Higher values relax thresholds more aggressively for distant geometry. Defaults to 2.
-     *
-     * @type {number}
-     */
-    colorUpdateDistanceLodScale = 2;
+    /** @ignore */
+    set colorUpdateDistance(value) {
+        Debug.removed('GSplatParams#colorUpdateDistance is removed. Use colorUpdateAngle instead.');
+    }
 
-    /**
-     * Scale factor applied to colorUpdateAngle for each LOD level.
-     * Each LOD level multiplies the threshold by this value raised to the power of lodIndex.
-     * For example, with scale=2: LOD 0 uses 1x threshold, LOD 1 uses 2x, LOD 2 uses 4x.
-     * Higher values relax thresholds more aggressively for distant geometry. Defaults to 2.
-     *
-     * @type {number}
-     */
-    colorUpdateAngleLodScale = 2;
+    /** @ignore */
+    get colorUpdateDistance() {
+        Debug.removed('GSplatParams#colorUpdateDistance is removed. Use colorUpdateAngle instead.');
+        return 0;
+    }
+
+    /** @ignore */
+    set colorUpdateDistanceLodScale(value) {
+        Debug.removed('GSplatParams#colorUpdateDistanceLodScale is removed. Per-node distance scaling is now automatic.');
+    }
+
+    /** @ignore */
+    get colorUpdateDistanceLodScale() {
+        Debug.removed('GSplatParams#colorUpdateDistanceLodScale is removed. Per-node distance scaling is now automatic.');
+        return 0;
+    }
+
+    /** @ignore */
+    set colorUpdateAngleLodScale(value) {
+        Debug.removed('GSplatParams#colorUpdateAngleLodScale is removed. Per-node distance scaling is now automatic.');
+    }
+
+    /** @ignore */
+    get colorUpdateAngleLodScale() {
+        Debug.removed('GSplatParams#colorUpdateAngleLodScale is removed. Per-node distance scaling is now automatic.');
+        return 0;
+    }
 
     /**
      * Sets the alpha threshold below which splats are discarded during shadow, pick, and prepass
@@ -591,6 +643,7 @@ class GSplatParams {
      *
      * If the source splats were generated without anti-aliasing, enabling this
      * option may slightly soften the image or alter opacity.
+     *
      * @type {boolean}
      */
     set antiAlias(value) {
@@ -615,6 +668,7 @@ class GSplatParams {
      * was generated for 2D Gaussian Splatting.
      *
      * Enabling this with standard 3D splat data may produce incorrect results.
+     *
      * @type {boolean}
      */
     set twoDimensional(value) {
@@ -631,13 +685,59 @@ class GSplatParams {
         return !!this._material.getDefine('GSPLAT_2DGS');
     }
 
+    /** @private */
+    _fisheye = 0;
+
+    /**
+     * Controls the fisheye projection strength for Gaussian splats. The value is in the
+     * range [0, 1]:
+     *
+     * - 0: Standard rectilinear (perspective) projection.
+     * - (0, 1]: Increasing barrel distortion, producing a wider field of view with a
+     *   "little planet" effect at higher values.
+     *
+     * Enabling fisheye for the first time has a small one-off cost as new shaders are
+     * compiled. Subsequent switches between 0 and non-zero are instantaneous.
+     *
+     * Only supported with perspective cameras. Has no effect with orthographic projection.
+     *
+     * Note: This only affects Gaussian splat rendering. Other objects in the scene (meshes,
+     * sprites, etc.) continue to use the standard camera projection and are not distorted.
+     *
+     * For best results, enable {@link radialSorting} when using fisheye projection
+     * to avoid sorting artifacts caused by the wide field of view.
+     *
+     * Defaults to 0.
+     *
+     * @type {number}
+     */
+    set fisheye(value) {
+        if (this._fisheye !== value) {
+            const wasEnabled = this._fisheye > 0;
+            this._fisheye = value;
+
+            const isEnabled = value > 0;
+            if (wasEnabled !== isEnabled) {
+                this._material.setDefine('GSPLAT_FISHEYE', isEnabled);
+                this._material.update();
+            }
+        }
+    }
+
+    /**
+     * Gets the fisheye projection strength.
+     *
+     * @type {number}
+     */
+    get fisheye() {
+        return this._fisheye;
+    }
+
     /**
      * Number of update ticks before unloading unused streamed resources. When a streamed resource's
      * reference count reaches zero, it enters a cooldown period before being unloaded. This allows
      * recently used data to remain in memory for quick reuse if needed again soon. Set to 0 to
      * unload immediately when unused. Defaults to 100.
-     *
-     * @type {number}
      */
     cooldownTicks = 100;
 

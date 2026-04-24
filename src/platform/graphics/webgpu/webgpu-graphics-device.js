@@ -33,6 +33,7 @@ import { WebgpuBuffer } from './webgpu-buffer.js';
 import { StorageBuffer } from '../storage-buffer.js';
 import { WebgpuDrawCommands } from './webgpu-draw-commands.js';
 import { WebgpuUploadStream } from './webgpu-upload-stream.js';
+import { WebgpuComputeBenchmark } from './webgpu-compute-benchmark.js';
 
 /**
  * @import { RenderPass } from '../render-pass.js'
@@ -77,7 +78,6 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
     /**
      * Number of indirect draw slots allocated.
      *
-     * @type {number}
      * @private
      */
     _indirectDrawBufferCount = 0;
@@ -85,7 +85,6 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
     /**
      * Next unused index in indirectDrawBuffer.
      *
-     * @type {number}
      * @private
      */
     _indirectDrawNextIndex = 0;
@@ -101,7 +100,6 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
     /**
      * Number of indirect dispatch slots allocated.
      *
-     * @type {number}
      * @private
      */
     _indirectDispatchBufferCount = 0;
@@ -109,7 +107,6 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
     /**
      * Next unused index in indirectDispatchBuffer.
      *
-     * @type {number}
      * @private
      */
     _indirectDispatchNextIndex = 0;
@@ -154,7 +151,6 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
     /**
      * Monotonically increasing counter incremented each time queue.submit() is called.
      *
-     * @type {number}
      * @ignore
      */
     submitVersion = 0;
@@ -332,7 +328,14 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
         this.supportsTextureFormatTier1 ||= this.supportsTextureFormatTier2;
         this.supportsPrimitiveIndex = requireFeature('primitive-index');
         this.supportsSubgroups = requireFeature('subgroups');
-        Debug.log(`WEBGPU features [${bare ? 'bare' : 'full'}]: ${requiredFeatures.join(', ') || 'none'}`);
+        this.maxSubgroupSize = this.supportsSubgroups ? (this.gpuAdapter?.limits?.maxSubgroupSize ?? 0) : 0;
+        this.minSubgroupSize = this.supportsSubgroups ? (this.gpuAdapter?.limits?.minSubgroupSize ?? 0) : 0;
+        Debug.log(
+            `WEBGPU${this.gpuAdapter?.info ?
+                ` (${this.gpuAdapter.info.vendor || '?'} / ${this.gpuAdapter.info.architecture || this.gpuAdapter.info.device || '?'})` :
+                ''
+            } features [${bare ? 'bare' : 'full'}]: ${requiredFeatures.join(', ') || 'none'}`
+        );
 
         // copy all adapter limits to the requiredLimits object (skipped for bare mode to use spec defaults)
         const requiredLimits = {};
@@ -369,6 +372,16 @@ class WebgpuGraphicsDevice extends GraphicsDevice {
 
         // handle lost device
         this.wgpu.lost?.then(this.handleDeviceLost.bind(this));
+
+        /**
+         * Compute performance index measured at startup (milliseconds for a fixed benchmark
+         * workload). Used by GSplat auto-selection to choose between compute and V/F renderers.
+         * -1 if timestamp queries are unavailable.
+         *
+         * @type {number}
+         * @ignore
+         */
+        this.computePerfIndex = await WebgpuComputeBenchmark.run(this.wgpu, this.supportsTimestampQuery);
 
         this.initDeviceCaps();
 

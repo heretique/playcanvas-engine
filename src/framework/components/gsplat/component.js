@@ -26,11 +26,11 @@ import { PickerId } from '../../../scene/picker-id.js';
  * `gsplat` which supports multiple file formats including `.ply`, `.sog`, `.meta.json` (SOG
  * format), and `.lod-meta.json` (streaming LOD format).
  *
- * You should never need to use the GSplatComponent constructor directly. To add an
+ * You should never need to use the GSplatComponent constructor directly. To add a
  * GSplatComponent to an {@link Entity}, use {@link Entity#addComponent}:
  *
  * ```javascript
- * const entity = pc.Entity();
+ * const entity = new pc.Entity();
  * entity.addComponent('gsplat', {
  *     asset: asset
  * });
@@ -47,8 +47,8 @@ import { PickerId } from '../../../scene/picker-id.js';
  *
  * ## Unified Rendering
  *
- * The {@link GSplatComponent#unified} property enables unified rendering mode, which provides
- * advanced features for Gaussian Splats:
+ * The {@link unified} property enables unified rendering mode, which provides advanced features
+ * for Gaussian Splats:
  *
  * - **Global Sorting**: Multiple splat components are sorted together in a single unified sort,
  *   eliminating visibility artifacts and popping effects when splat components overlap.
@@ -114,7 +114,6 @@ class GSplatComponent extends Component {
     /**
      * Base distance for the first LOD transition (LOD 0 to LOD 1).
      *
-     * @type {number}
      * @private
      */
     _lodBaseDistance = 5;
@@ -122,7 +121,6 @@ class GSplatComponent extends Component {
     /**
      * Geometric multiplier between successive LOD distance thresholds.
      *
-     * @type {number}
      * @private
      */
     _lodMultiplier = 3;
@@ -171,7 +169,6 @@ class GSplatComponent extends Component {
     /**
      * Whether to use the unified gsplat rendering.
      *
-     * @type {boolean}
      * @private
      */
     _unified = false;
@@ -483,8 +480,9 @@ class GSplatComponent extends Component {
     }
 
     /**
-     * @deprecated Use {@link lodBaseDistance} and {@link lodMultiplier} instead.
      * @type {number[]|null}
+     * @deprecated Use {@link lodBaseDistance} and {@link lodMultiplier} instead.
+     * @ignore
      */
     set lodDistances(value) {
         Debug.removed('GSplatComponent#lodDistances is removed. Use lodBaseDistance and lodMultiplier instead.');
@@ -495,8 +493,9 @@ class GSplatComponent extends Component {
     }
 
     /**
-     * @deprecated Use {@link lodBaseDistance} and {@link lodMultiplier} instead.
      * @type {number[]}
+     * @deprecated Use {@link lodBaseDistance} and {@link lodMultiplier} instead.
+     * @ignore
      */
     get lodDistances() {
         Debug.removed('GSplatComponent#lodDistances is removed. Use lodBaseDistance and lodMultiplier instead.');
@@ -504,13 +503,19 @@ class GSplatComponent extends Component {
     }
 
     /**
-     * @deprecated Use app.scene.gsplat.splatBudget instead for global budget control.
      * @type {number}
+     * @deprecated Use app.scene.gsplat.splatBudget instead for global budget control.
+     * @ignore
      */
     set splatBudget(value) {
         Debug.removed('GSplatComponent.splatBudget is removed. Use app.scene.gsplat.splatBudget instead for global budget control.');
     }
 
+    /**
+     * @type {number}
+     * @deprecated Use app.scene.gsplat.splatBudget instead for global budget control.
+     * @ignore
+     */
     get splatBudget() {
         Debug.removed('GSplatComponent.splatBudget is removed. Use app.scene.gsplat.splatBudget instead for global budget control.');
         return 0;
@@ -519,9 +524,9 @@ class GSplatComponent extends Component {
     /**
      * Sets whether to use the unified gsplat rendering. Default is false.
      *
-     * Note: Material handling differs between modes. When unified is false, use
-     * {@link GSplatComponent#material}. When unified is true, materials are shared per
-     * camera/layer - use {@link GSplatComponentSystem#getMaterial} instead.
+     * Note: Material handling differs between modes. When unified is false, use {@link material}.
+     * When unified is true, materials are shared per camera/layer - use
+     * {@link GSplatComponentSystem#getMaterial} instead.
      *
      * @type {boolean}
      */
@@ -562,8 +567,8 @@ class GSplatComponent extends Component {
      * - {@link WORKBUFFER_UPDATE_ONCE}: Force update this frame, then switch to AUTO.
      * - {@link WORKBUFFER_UPDATE_ALWAYS}: Update every frame.
      *
-     * This is typically useful when using custom shader code via {@link workBufferModifier} that
-     * depends on external factors like time or animated uniforms.
+     * This is typically useful when using custom shader code via {@link setWorkBufferModifier}
+     * that depends on external factors like time or animated uniforms.
      *
      * Note: {@link WORKBUFFER_UPDATE_ALWAYS} has a performance impact as it re-renders
      * all splat data to the work buffer every frame. Where possible, consider using shader
@@ -899,7 +904,7 @@ class GSplatComponent extends Component {
     }
 
     /**
-     * Enable rendering of the component if hidden using {@link GSplatComponent#hide}.
+     * Enable rendering of the component if hidden using {@link hide}.
      */
     show() {
         if (this._instance) {

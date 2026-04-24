@@ -1,5 +1,6 @@
 import gsplatOutputVS from '../shader-lib/wgsl/chunks/gsplat/vert/gsplatOutput.js';
 import { shaderChunksWGSL } from '../shader-lib/wgsl/collections/shader-chunks-wgsl.js';
+import { FisheyeProjection } from '../graphics/fisheye-projection.js';
 
 /**
  * @import { StorageBuffer } from '../../platform/graphics/storage-buffer.js'
@@ -8,6 +9,7 @@ import { shaderChunksWGSL } from '../shader-lib/wgsl/collections/shader-chunks-w
  * @import { GraphNode } from '../graph-node.js'
  * @import { GraphicsDevice } from '../../platform/graphics/graphics-device.js'
  * @import { GSplatWorkBuffer } from './gsplat-work-buffer.js'
+ * @import { FogParams } from '../fog-params.js'
  */
 
 /**
@@ -39,10 +41,19 @@ class GSplatRenderer {
     /**
      * Cached work buffer format version for detecting extra stream changes.
      *
-     * @type {number}
      * @protected
      */
     _workBufferFormatVersion = -1;
+
+    /**
+     * Fisheye projection helper shared by all renderer paths.
+     * The manager calls update() during culling; renderers read the computed values
+     * when binding uniforms.
+     *
+     * @type {FisheyeProjection}
+     * @ignore
+     */
+    fisheyeProj = new FisheyeProjection();
 
     /**
      * @param {GraphicsDevice} device - The graphics device.
@@ -57,7 +68,7 @@ class GSplatRenderer {
         this.cameraNode = cameraNode;
         this.layer = layer;
         this.workBuffer = workBuffer;
-        this._workBufferFormatVersion = workBuffer.format.extraStreamsVersion;
+        this._workBufferFormatVersion = workBuffer?.format.extraStreamsVersion ?? -1;
     }
 
     destroy() {
@@ -79,6 +90,22 @@ class GSplatRenderer {
      */
     get material() {
         return null;
+    }
+
+    /**
+     * Sets the data source providing format and texture access. The base implementation updates
+     * the workBuffer and notifies derived classes of the format change. Derived classes (e.g.
+     * the compute renderer) may override this to decouple from the work buffer entirely.
+     *
+     * The source object must provide:
+     * - `format` — a {@link GSplatFormat} describing the texture streams and shader read code.
+     * - `getTexture(name)` — a function returning a {@link Texture} for a given stream name.
+     *
+     * @param {object} source - The data source (typically a {@link GSplatWorkBuffer}).
+     */
+    setDataSource(source) {
+        this.workBuffer = source;
+        this.onWorkBufferFormatChanged();
     }
 
     /**
@@ -125,8 +152,9 @@ class GSplatRenderer {
      *
      * @param {object} params - The gsplat parameters.
      * @param {number} [exposure] - Scene exposure value.
+     * @param {FogParams} [fogParams] - Fog parameters.
      */
-    frameUpdate(params, exposure) {
+    frameUpdate(params, exposure, fogParams) {
     }
 
     /**

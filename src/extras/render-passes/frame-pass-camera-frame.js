@@ -70,7 +70,7 @@ class CameraFrameOptions {
 const _defaultOptions = new CameraFrameOptions();
 
 /**
- * Render pass implementation of a common camera frame rendering with integrated  post-processing
+ * Render pass implementation of a common camera frame rendering with integrated post-processing
  * effects.
  *
  * @category Graphics
@@ -100,7 +100,6 @@ class FramePassCameraFrame extends FramePass {
     /**
      * True if the render pass needs to be re-created because layers have been added or removed.
      *
-     * @type {boolean}
      * @ignore
      */
     layersDirty = false;
@@ -294,6 +293,45 @@ class FramePassCameraFrame extends FramePass {
 
         const allPasses = this.collectPasses();
         this.beforePasses = allPasses.filter(element => element !== undefined && element !== null);
+
+        this.updateCameraUseFlags();
+    }
+
+    /**
+     * Scan all RenderPassForward instances in the pass chain and mark the first / last
+     * render action per camera with firstCameraUse / lastCameraUse. This mirrors what
+     * LayerComposition does for the non-CameraFrame path and ensures that beforePasses
+     * collection and EVENT_PRERENDER / EVENT_POSTRENDER fire exactly once per camera.
+     *
+     * @private
+     */
+    updateCameraUseFlags() {
+        const firstSeen = new Map();
+        const lastSeen = new Map();
+
+        for (let i = 0; i < this.beforePasses.length; i++) {
+            const pass = this.beforePasses[i];
+            if (pass instanceof RenderPassForward) {
+                const actions = pass.renderActions;
+                for (let j = 0; j < actions.length; j++) {
+                    const ra = actions[j];
+                    const cam = ra.camera;
+                    if (cam) {
+                        if (!firstSeen.has(cam)) {
+                            firstSeen.set(cam, ra);
+                        }
+                        lastSeen.set(cam, ra);
+                    }
+                }
+            }
+        }
+
+        firstSeen.forEach((ra) => {
+            ra.firstCameraUse = true;
+        });
+        lastSeen.forEach((ra) => {
+            ra.lastCameraUse = true;
+        });
     }
 
     collectPasses() {

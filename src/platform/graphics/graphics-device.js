@@ -93,8 +93,6 @@ class GraphicsDevice extends EventHandler {
 
     /**
      * True if the back buffer should use anti-aliasing.
-     *
-     * @type {boolean}
      */
     backBufferAntialias = false;
 
@@ -142,16 +140,12 @@ class GraphicsDevice extends EventHandler {
      * The maximum number of indirect draw calls that can be used within a single frame. Used on
      * WebGPU only. This needs to be adjusted based on the maximum number of draw calls that can
      * be used within a single frame. Defaults to 1024.
-     *
-     * @type {number}
      */
     maxIndirectDrawCount = 1024;
 
     /**
      * The maximum number of indirect compute dispatches that can be used within a single frame.
      * Used on WebGPU only. Defaults to 256.
-     *
-     * @type {number}
      */
     maxIndirectDispatchCount = 256;
 
@@ -231,8 +225,6 @@ class GraphicsDevice extends EventHandler {
     /**
      * True if the device supports multi-draw. This is always supported on WebGPU, and support on
      * WebGL2 is optional, but pretty common.
-     *
-     * @type {boolean}
      */
     supportsMultiDraw = true;
 
@@ -273,7 +265,7 @@ class GraphicsDevice extends EventHandler {
      * True if the device supports the WGSL subgroup_uniformity extension, which allows
      * subgroup functionality to be considered uniform in more cases during shader compilation.
      * This is automatically enabled via the `enable subgroups;` directive when
-     * {@link GraphicsDevice#supportsSubgroups} is true.
+     * {@link supportsSubgroups} is true.
      *
      * @readonly
      * @type {boolean}
@@ -289,6 +281,27 @@ class GraphicsDevice extends EventHandler {
      * @readonly
      */
     supportsSubgroupId = false;
+
+    /**
+     * Maximum subgroup (warp/wavefront) size supported by the device. Zero if subgroups are
+     * not supported. Used internally to gate algorithms that assume a specific subgroup size.
+     *
+     * @type {number}
+     * @ignore
+     */
+    maxSubgroupSize = 0;
+
+    /**
+     * Minimum subgroup (warp/wavefront) size supported by the device. Zero if subgroups are
+     * not supported. On hardware where min and max differ, the WGSL `subgroup_size` builtin
+     * may report any value in `[minSubgroupSize, maxSubgroupSize]`; shaders sizing shared
+     * memory by the number of subgroups in a workgroup should use the minimum to cover the
+     * worst-case subgroup count.
+     *
+     * @type {number}
+     * @ignore
+     */
+    minSubgroupSize = 0;
 
     /**
      * Currently active render target.
@@ -334,7 +347,6 @@ class GraphicsDevice extends EventHandler {
      * A version number that is incremented every frame. This is used to detect if some object were
      * invalidated.
      *
-     * @type {number}
      * @ignore
      */
     renderVersion = 0;
@@ -353,7 +365,6 @@ class GraphicsDevice extends EventHandler {
     /**
      * True if the device supports uniform buffers.
      *
-     * @type {boolean}
      * @ignore
      */
     supportsUniformBuffers = false;
@@ -361,8 +372,6 @@ class GraphicsDevice extends EventHandler {
     /**
      * True if the device supports clip distances (WebGPU only). Clip distances allow you to restrict
      * primitives' clip volume with user-defined half-spaces in the output of vertex stage.
-     *
-     * @type {boolean}
      */
     supportsClipDistances = false;
 
@@ -516,10 +525,7 @@ class GraphicsDevice extends EventHandler {
      */
     gpuProfiler;
 
-    /**
-     * @type {boolean}
-     * @ignore
-     */
+    /** @ignore */
     _destroyed = false;
 
     defaultClearOptions = {
@@ -543,7 +549,6 @@ class GraphicsDevice extends EventHandler {
     /**
      * A very heavy handed way to force all shaders to be rebuilt. Avoid using as much as possible.
      *
-     * @type {boolean}
      * @ignore
      */
     _shadersDirty = false;
@@ -927,6 +932,7 @@ class GraphicsDevice extends EventHandler {
     /**
      * Clears the vertex buffer set on the graphics device. This is called automatically by the
      * renderer.
+     *
      * @ignore
      */
     clearVertexBuffer() {
@@ -1117,9 +1123,8 @@ class GraphicsDevice extends EventHandler {
 
     /**
      * Sets the width and height of the canvas, then fires the `resizecanvas` event. Note that the
-     * specified width and height values will be multiplied by the value of
-     * {@link GraphicsDevice#maxPixelRatio} to give the final resultant width and height for the
-     * canvas.
+     * specified width and height values will be multiplied by the value of {@link maxPixelRatio}
+     * to give the final resultant width and height for the canvas.
      *
      * @param {number} width - The new width of the canvas.
      * @param {number} height - The new height of the canvas.
@@ -1136,7 +1141,7 @@ class GraphicsDevice extends EventHandler {
 
     /**
      * Sets the width and height of the canvas, then fires the `resizecanvas` event. Note that the
-     * value of {@link GraphicsDevice#maxPixelRatio} is ignored.
+     * value of {@link maxPixelRatio} is ignored.
      *
      * @param {number} width - The new width of the canvas.
      * @param {number} height - The new height of the canvas.
